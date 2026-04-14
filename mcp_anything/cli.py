@@ -14,10 +14,10 @@ from mcp_anything.llm import create_llm, get_available_providers
 
 
 BANNER = """
-╔══════════════════════════════════════════════════════════╗
-║  🔌 MCP-Anything: Generate MCP Servers for Any API      ║
-║  🤖 With pluggable LLM backends for enhanced generation  ║
-╚══════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════╗
+║  🔌 MCP-Anything: Generate MCP Servers for Any API          ║
+║  🤖 Pluggable LLM backends • 🧠 Claude-native enhancement   ║
+╚══════════════════════════════════════════════════════════════╝
 """
 
 
@@ -31,8 +31,11 @@ def generate_from_spec(
     server_name: str = "",
     env_prefix: str = "",
     llm_config: dict | None = None,
+    use_claude: bool = False,
+    claude_model: str = "claude-sonnet-4-20250514",
+    include_tests: bool = False,
 ):
-    """Tier 1: Generate MCP server from an OpenAPI spec."""
+    """Generate MCP server from an OpenAPI spec."""
     print(f"📋 Loading OpenAPI spec: {spec_source[:80]}...")
     analyzer = OpenAPIAnalyzer(spec_source)
     analyzer.load()
@@ -45,7 +48,47 @@ def generate_from_spec(
     endpoints = analyzer.extract_endpoints()
     print(f"   Extracted {len(endpoints)} tool definitions")
 
-    # LLM enhancement if configured
+    # Claude-native enhancement
+    if use_claude:
+        print(f"\n🧠 Claude Enhancement Mode ({claude_model})")
+        print(f"   Using Anthropic SDK with native tool_use...")
+
+        from mcp_anything.claude_generator import ClaudeEnhancedGenerator
+
+        def on_progress(step, detail):
+            icons = {"analyze": "📋", "enhance": "🧠", "generate": "🔨", "write": "💾", "done": "✅"}
+            print(f"   {icons.get(step, '•')} {step}: {detail}")
+
+        generator = ClaudeEnhancedGenerator(
+            analyzer=analyzer,
+            model=claude_model,
+            batch_size=5,
+        )
+        result = generator.generate(
+            output_dir=output_dir,
+            server_name=server_name,
+            env_prefix=env_prefix,
+            include_groups=True,
+            include_tests=include_tests,
+            on_progress=on_progress,
+        )
+
+        print(f"\n✅ Generated Claude-Enhanced MCP Server!")
+        print(f"   Server:  {result['server_file']}")
+        print(f"   Config:  {result['config_file']}")
+        print(f"   Tools:   {result['tool_count']} enhanced tools")
+        print(f"   Groups:  {result['group_count']} logical workflows")
+        print(f"   Model:   {result['claude_model']}")
+
+        enh = result["enhancement_summary"]
+        print(f"\n📊 Enhancement Stats:")
+        print(f"   With examples:      {enh.get('with_examples', 0)}")
+        print(f"   With error handling:{enh.get('with_error_handling', 0)}")
+        print(f"   With prerequisites: {enh.get('with_prerequisites', 0)}")
+
+        return result
+
+    # Standard LLM enhancement (non-Claude)
     if llm_config:
         print(f"\n🤖 Enhancing with LLM ({llm_config.get('provider', 'default')}...")
         try:
@@ -55,13 +98,11 @@ def generate_from_spec(
             enhanced = enhancer.enhance_all()
             enh_summary = enhancer.get_enhancement_summary()
             print(f"   Enhanced {enh_summary['total_tools']} tools")
-            print(f"   - With examples: {enh_summary['tools_with_examples']}")
-            print(f"   - With error handling: {enh_summary['tools_with_error_handling']}")
-            print(f"   - With notes: {enh_summary['tools_with_notes']}")
         except Exception as e:
             print(f"   ⚠️  LLM enhancement failed: {e}")
             print(f"   Continuing with standard generation...")
 
+    # Standard generation
     print(f"\n🔨 Generating MCP server...")
     generator = MCPServerGenerator(analyzer, server_name=server_name, env_prefix=env_prefix)
     result = generator.generate(output_dir)
@@ -90,9 +131,7 @@ def discover_from_url(url: str, output_dir: str, firecrawl_key: str = "", server
     print(f"🔍 Extracting API structure from docs...")
     api_info = crawler.extract_api_from_docs(results)
     print(f"   Discovered {len(api_info['endpoints'])} endpoint references")
-    print(f"   Base patterns: {api_info['base_patterns'][:5]}")
 
-    # Try to find OpenAPI spec
     print(f"🔎 Looking for OpenAPI specs...")
     specs = crawler.extract_openapi_specs(url)
     if specs:
@@ -111,37 +150,66 @@ def discover_from_url(url: str, output_dir: str, firecrawl_key: str = "", server
 def list_providers():
     """List available LLM providers."""
     print("🤖 Available LLM Providers:\n")
-    print(f"  {'Provider':<15} {'Default Model':<35} {'Env Var':<25} {'Note'}")
-    print(f"  {'─'*15} {'─'*35} {'─'*25} {'─'*30}")
+    print(f"  {'Provider':<15} {'Default Model':<35} {'Env Var':<25}")
+    print(f"  {'─'*15} {'─'*35} {'─'*25}")
     for p in get_available_providers():
-        print(f"  {p['provider']:<15} {p['default_model']:<35} {p['env_var']:<25} {p.get('note', '')}")
-    print(f"\n💡 Set MCP_ANYTHING_LLM_PROVIDER to auto-select a provider.")
-    print(f"   Example: export MCP_ANYTHING_LLM_PROVIDER=anthropic")
+        print(f"  {p['provider']:<15} {p['default_model']:<35} {p['env_var']:<25}")
+    print(f"\n🧠 Claude-Native Mode (recommended):")
+    print(f"   mcp-anything generate spec.json --claude")
+    print(f"   Uses Anthropic SDK with native tool_use for richer output")
+    print(f"\n💡 Generic LLM mode:")
+    print(f"   mcp-anything generate spec.json --llm openai")
+    print(f"   Set MCP_ANYTHING_LLM_PROVIDER to auto-select")
 
 
-def parse_llm_args(args: list[str]) -> dict | None:
-    """Parse LLM-related CLI flags."""
-    config = {}
-    has_llm = False
+def parse_args(args: list[str]) -> dict:
+    """Parse all CLI flags into a config dict."""
+    config = {
+        "output": "./output",
+        "name": "",
+        "env_prefix": "",
+        "firecrawl_key": os.environ.get("FIRECRAWL_API_KEY", ""),
+        "llm": None,
+        "claude": False,
+        "claude_model": "claude-sonnet-4-20250514",
+        "include_tests": False,
+        "positional": [],
+    }
 
     i = 0
     while i < len(args):
-        if args[i] == "--llm" and i + 1 < len(args):
-            config["provider"] = args[i + 1]
-            has_llm = True
-            i += 2
-        elif args[i] == "--llm-model" and i + 1 < len(args):
-            config["model"] = args[i + 1]
-            has_llm = True
-            i += 2
-        elif args[i] == "--llm-key" and i + 1 < len(args):
-            config["api_key"] = args[i + 1]
-            has_llm = True
-            i += 2
+        arg = args[i]
+        if arg == "--output" and i + 1 < len(args):
+            config["output"] = args[i + 1]; i += 2
+        elif arg == "--name" and i + 1 < len(args):
+            config["name"] = args[i + 1]; i += 2
+        elif arg == "--env-prefix" and i + 1 < len(args):
+            config["env_prefix"] = args[i + 1]; i += 2
+        elif arg == "--firecrawl-key" and i + 1 < len(args):
+            config["firecrawl_key"] = args[i + 1]; i += 2
+        elif arg == "--claude":
+            config["claude"] = True; i += 1
+        elif arg == "--claude-model" and i + 1 < len(args):
+            config["claude"] = True
+            config["claude_model"] = args[i + 1]; i += 2
+        elif arg == "--include-tests":
+            config["include_tests"] = True; i += 1
+        elif arg == "--llm" and i + 1 < len(args):
+            config["llm"] = {"provider": args[i + 1]}; i += 2
+        elif arg == "--llm-model" and i + 1 < len(args):
+            if config["llm"] is None:
+                config["llm"] = {}
+            config["llm"]["model"] = args[i + 1]; i += 2
+        elif arg == "--llm-key" and i + 1 < len(args):
+            if config["llm"] is None:
+                config["llm"] = {}
+            config["llm"]["api_key"] = args[i + 1]; i += 2
+        elif not arg.startswith("--"):
+            config["positional"].append(arg); i += 1
         else:
             i += 1
 
-    return config if has_llm else None
+    return config
 
 
 def main():
@@ -149,103 +217,63 @@ def main():
 
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  mcp-anything generate <spec_url_or_file> [options]")
-        print("  mcp-anything discover <website_url> [options]")
-        print("  mcp-anything info <spec_url_or_file>")
+        print("  mcp-anything generate <spec> [options]")
+        print("  mcp-anything discover <url> [options]")
+        print("  mcp-anything info <spec>")
         print("  mcp-anything llm-providers")
         print()
+        print("Generation Modes:")
+        print("  (default)       Standard mechanical code generation")
+        print("  --claude        Claude-native enhancement (tool_use, grouping, examples)")
+        print("  --llm PROVIDER  Generic LLM enhancement (openai|anthropic|google|openrouter)")
+        print()
         print("Options:")
-        print("  --output DIR         Output directory (default: ./output)")
-        print("  --name NAME          Server name")
-        print("  --env-prefix PREFIX  Environment variable prefix")
-        print("  --llm PROVIDER       Use LLM for enhanced generation")
-        print("  --llm-model MODEL    Override default model")
-        print("  --llm-key KEY        API key for LLM provider")
-        print("  --firecrawl-key KEY  Firecrawl API key")
+        print("  --output DIR          Output directory (default: ./output)")
+        print("  --name NAME           Server name")
+        print("  --env-prefix PREFIX   Environment variable prefix")
+        print("  --claude-model MODEL  Claude model (default: claude-sonnet-4-20250514)")
+        print("  --include-tests       Generate test cases (Claude mode)")
+        print("  --llm-model MODEL     Override LLM model")
+        print("  --llm-key KEY         LLM API key")
+        print("  --firecrawl-key KEY   Firecrawl API key")
         print()
         print("Examples:")
         print("  mcp-anything generate https://api.example.com/openapi.json")
-        print("  mcp-anything generate spec.json --llm anthropic --output ./my-api")
+        print("  mcp-anything generate spec.json --claude")
+        print("  mcp-anything generate spec.json --claude --claude-model claude-sonnet-4-20250514")
         print("  mcp-anything generate spec.json --llm openai --llm-model gpt-4o")
         print("  mcp-anything discover https://api.example.com")
         print("  mcp-anything llm-providers")
         sys.exit(1)
 
     command = sys.argv[1]
-    args = sys.argv[2:]
-
-    # Parse common flags
-    output_dir = "./output"
-    server_name = ""
-    env_prefix = ""
-    firecrawl_key = os.environ.get("FIRECRAWL_API_KEY", "")
-    llm_config = parse_llm_args(args)
-
-    # Parse remaining flags
-    positional = []
-    i = 0
-    while i < len(args):
-        if args[i] in ("--output", "--name", "--env-prefix", "--firecrawl-key", "--llm", "--llm-model", "--llm-key"):
-            i += 2  # skip flag and value
-        elif args[i] == "--output" and i + 1 < len(args):
-            output_dir = args[i + 1]
-            i += 2
-        elif args[i] == "--name" and i + 1 < len(args):
-            server_name = args[i + 1]
-            i += 2
-        elif args[i] == "--env-prefix" and i + 1 < len(args):
-            env_prefix = args[i + 1]
-            i += 2
-        elif args[i] == "--firecrawl-key" and i + 1 < len(args):
-            firecrawl_key = args[i + 1]
-            i += 2
-        elif not args[i].startswith("--"):
-            positional.append(args[i])
-            i += 1
-        else:
-            i += 1
-
-    # Re-parse to get actual values (the above loop skips them)
-    output_dir = "./output"
-    server_name = ""
-    env_prefix = ""
-    i = 0
-    while i < len(args):
-        if args[i] == "--output" and i + 1 < len(args):
-            output_dir = args[i + 1]
-            i += 2
-        elif args[i] == "--name" and i + 1 < len(args):
-            server_name = args[i + 1]
-            i += 2
-        elif args[i] == "--env-prefix" and i + 1 < len(args):
-            env_prefix = args[i + 1]
-            i += 2
-        elif args[i] == "--firecrawl-key" and i + 1 < len(args):
-            firecrawl_key = args[i + 1]
-            i += 2
-        elif args[i] in ("--llm", "--llm-model", "--llm-key"):
-            i += 2  # already parsed by parse_llm_args
-        elif not args[i].startswith("--"):
-            i += 1
-        else:
-            i += 1
+    config = parse_args(sys.argv[2:])
 
     if command == "generate":
-        spec = positional[0] if positional else ""
+        spec = config["positional"][0] if config["positional"] else ""
         if not spec:
             print("Error: provide an OpenAPI spec URL or file path")
             sys.exit(1)
-        generate_from_spec(spec, output_dir, server_name, env_prefix, llm_config)
+        generate_from_spec(
+            spec_source=spec,
+            output_dir=config["output"],
+            server_name=config["name"],
+            env_prefix=config["env_prefix"],
+            llm_config=config["llm"],
+            use_claude=config["claude"],
+            claude_model=config["claude_model"],
+            include_tests=config["include_tests"],
+        )
 
     elif command == "discover":
-        url = positional[0] if positional else ""
+        url = config["positional"][0] if config["positional"] else ""
         if not url:
             print("Error: provide a website URL")
             sys.exit(1)
-        discover_from_url(url, output_dir, firecrawl_key, server_name)
+        discover_from_url(url, config["output"], config["firecrawl_key"], config["name"])
 
     elif command == "info":
-        spec = positional[0] if positional else ""
+        spec = config["positional"][0] if config["positional"] else ""
         if not spec:
             print("Error: provide an OpenAPI spec URL or file path")
             sys.exit(1)
