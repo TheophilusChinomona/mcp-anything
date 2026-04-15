@@ -350,6 +350,7 @@ class MCPServerGenerator:
             func_name = _sanitize_name(ep.operation_id) or _sanitize_name(f"{ep.method}_{ep.path}")
             inventory.append({
                 "name": func_name,
+                "operation_id": ep.operation_id,
                 "method": ep.method,
                 "path": ep.path,
                 "summary": ep.summary,
