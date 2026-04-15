@@ -7,8 +7,9 @@ from mcp_anything.llm import LLMBackend, create_llm, get_available_providers
 from mcp_anything.enhancer import LLMEnhancedGenerator
 from mcp_anything.claude import ClaudeIntegration, ClaudeEnhancedEndpoint, ToolGroup
 from mcp_anything.claude_generator import ClaudeEnhancedGenerator as ClaudeEnhancedServerGenerator
+from mcp_anything.openai_agents import OpenAIAgentsPipeline, AgentPipelineResult
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     # Core
     "MCPServerGenerator",
@@ -19,9 +20,12 @@ __all__ = [
     "create_llm",
     "get_available_providers",
     "LLMEnhancedGenerator",
-    # Claude-native
+    # Claude SDK
     "ClaudeIntegration",
     "ClaudeEnhancedEndpoint",
     "ToolGroup",
     "ClaudeEnhancedServerGenerator",
+    # OpenAI Agents SDK
+    "OpenAIAgentsPipeline",
+    "AgentPipelineResult",
 ]

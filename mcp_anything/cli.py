@@ -11,13 +11,14 @@ from mcp_anything.analyzer import OpenAPIAnalyzer
 from mcp_anything.generator import MCPServerGenerator
 from mcp_anything.crawler import FirecrawlCrawler
 from mcp_anything.llm import create_llm, get_available_providers
+from mcp_anything.openai_agents import OpenAIAgentsPipeline
 
 
 BANNER = """
-╔══════════════════════════════════════════════════════════════╗
-║  🔌 MCP-Anything: Generate MCP Servers for Any API          ║
-║  🤖 Pluggable LLM backends • 🧠 Claude-native enhancement   ║
-╚══════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════╗
+║  🔌 MCP-Anything: Generate MCP Servers for Any API              ║
+║  🤖 LLM • 🧠 Claude SDK • 🤝 OpenAI Agents SDK + OpenRouter     ║
+╚══════════════════════════════════════════════════════════════════╝
 """
 
 
@@ -33,6 +34,9 @@ def generate_from_spec(
     llm_config: dict | None = None,
     use_claude: bool = False,
     claude_model: str = "claude-sonnet-4-20250514",
+    use_agents: bool = False,
+    agents_model: str = "anthropic/claude-sonnet-4",
+    agents_provider: str = "openrouter",
     include_tests: bool = False,
 ):
     """Generate MCP server from an OpenAPI spec."""
@@ -48,7 +52,50 @@ def generate_from_spec(
     endpoints = analyzer.extract_endpoints()
     print(f"   Extracted {len(endpoints)} tool definitions")
 
-    # Claude-native enhancement
+    # ── OpenAI Agents SDK mode ──
+    if use_agents:
+        print(f"\n🤝 OpenAI Agents SDK Mode")
+        print(f"   Model: {agents_model}")
+        print(f"   Provider: {agents_provider}")
+        print(f"   Running 3-agent pipeline: Analyzer → Designer → Generator")
+
+        pipeline = OpenAIAgentsPipeline(
+            model=agents_model,
+            provider=agents_provider,
+        )
+
+        def on_progress(agent, msg):
+            icons = {"analyzer": "📋", "designer": "📐", "generator": "🔨", "done": "✅"}
+            print(f"   {icons.get(agent, '•')} [{agent}] {msg}")
+
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+
+        result = loop.run_until_complete(pipeline.run(
+            spec_source=spec_source,
+            output_dir=output_dir,
+            server_name=server_name,
+            on_progress=on_progress,
+        ))
+
+        print(f"\n✅ Generated MCP Server via OpenAI Agents!")
+        print(f"   Server:  {result.server_file or '(see output dir)'}")
+        print(f"   Config:  {result.config_file or '(see output dir)'}")
+        print(f"   Tools:   {result.tool_count}")
+        print(f"   Groups:  {result.group_count}")
+        print(f"   Model:   {result.model}")
+        return {
+            "server_file": result.server_file,
+            "config_file": result.config_file,
+            "tool_count": result.tool_count,
+            "group_count": result.group_count,
+            "server_name": server_name,
+        }
+
+    # ── Claude-native enhancement ──
     if use_claude:
         print(f"\n🧠 Claude Enhancement Mode ({claude_model})")
         print(f"   Using Anthropic SDK with native tool_use...")
@@ -172,6 +219,9 @@ def parse_args(args: list[str]) -> dict:
         "llm": None,
         "claude": False,
         "claude_model": "claude-sonnet-4-20250514",
+        "agents": False,
+        "agents_model": "anthropic/claude-sonnet-4",
+        "agents_provider": "openrouter",
         "include_tests": False,
         "positional": [],
     }
@@ -194,6 +244,13 @@ def parse_args(args: list[str]) -> dict:
             config["claude_model"] = args[i + 1]; i += 2
         elif arg == "--include-tests":
             config["include_tests"] = True; i += 1
+        elif arg == "--agents":
+            config["agents"] = True; i += 1
+        elif arg == "--agents-model" and i + 1 < len(args):
+            config["agents"] = True
+            config["agents_model"] = args[i + 1]; i += 2
+        elif arg == "--agents-provider" and i + 1 < len(args):
+            config["agents_provider"] = args[i + 1]; i += 2
         elif arg == "--llm" and i + 1 < len(args):
             config["llm"] = {"provider": args[i + 1]}; i += 2
         elif arg == "--llm-model" and i + 1 < len(args):
@@ -223,25 +280,30 @@ def main():
         print("  mcp-anything llm-providers")
         print()
         print("Generation Modes:")
-        print("  (default)       Standard mechanical code generation")
-        print("  --claude        Claude-native enhancement (tool_use, grouping, examples)")
-        print("  --llm PROVIDER  Generic LLM enhancement (openai|anthropic|google|openrouter)")
+        print("  (default)          Standard mechanical code generation")
+        print("  --claude           Claude SDK enhancement (native tool_use)")
+        print("  --agents           OpenAI Agents SDK pipeline (3-agent workflow)")
+        print("  --llm PROVIDER     Generic LLM enhancement")
         print()
         print("Options:")
-        print("  --output DIR          Output directory (default: ./output)")
-        print("  --name NAME           Server name")
-        print("  --env-prefix PREFIX   Environment variable prefix")
-        print("  --claude-model MODEL  Claude model (default: claude-sonnet-4-20250514)")
-        print("  --include-tests       Generate test cases (Claude mode)")
-        print("  --llm-model MODEL     Override LLM model")
-        print("  --llm-key KEY         LLM API key")
-        print("  --firecrawl-key KEY   Firecrawl API key")
+        print("  --output DIR             Output directory (default: ./output)")
+        print("  --name NAME              Server name")
+        print("  --env-prefix PREFIX      Environment variable prefix")
+        print("  --claude-model MODEL     Claude model (default: claude-sonnet-4-20250514)")
+        print("  --agents-model MODEL     Agents model (default: anthropic/claude-sonnet-4)")
+        print("  --agents-provider PROV   Agents provider (default: openrouter)")
+        print("  --include-tests          Generate test cases")
+        print("  --llm-model MODEL        Override LLM model")
+        print("  --llm-key KEY            LLM API key")
+        print("  --firecrawl-key KEY      Firecrawl API key")
         print()
         print("Examples:")
         print("  mcp-anything generate https://api.example.com/openapi.json")
+        print("  mcp-anything generate spec.json --agents")
+        print("  mcp-anything generate spec.json --agents-model openai/gpt-4o")
+        print("  mcp-anything generate spec.json --agents-model meta-llama/llama-4-maverick")
         print("  mcp-anything generate spec.json --claude")
-        print("  mcp-anything generate spec.json --claude --claude-model claude-sonnet-4-20250514")
-        print("  mcp-anything generate spec.json --llm openai --llm-model gpt-4o")
+        print("  mcp-anything generate spec.json --llm openai")
         print("  mcp-anything discover https://api.example.com")
         print("  mcp-anything llm-providers")
         sys.exit(1)
@@ -262,6 +324,9 @@ def main():
             llm_config=config["llm"],
             use_claude=config["claude"],
             claude_model=config["claude_model"],
+            use_agents=config["agents"],
+            agents_model=config["agents_model"],
+            agents_provider=config["agents_provider"],
             include_tests=config["include_tests"],
         )
 

@@ -35,10 +35,12 @@ dependencies = [
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.20"]
 google = ["google-generativeai>=0.3"]
+agents = ["openai-agents>=0.10", "openai>=1.0"]
 all = [
     "mcp-anything[openai]",
     "mcp-anything[anthropic]",
     "mcp-anything[google]",
+    "mcp-anything[agents]",
 ]
 dev = [
     "pytest>=7.0",
