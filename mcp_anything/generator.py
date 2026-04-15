@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from mcp_anything.analyzer import OpenAPIAnalyzer, EndpointInfo
+from mcp_anything.skill_gen import SkillGenerator
 
 
 # ─── Python code generation helpers ──────────────────────────────────────────
@@ -262,12 +263,17 @@ class MCPServerGenerator:
         readme_file = output_path / "README.md"
         readme_file.write_text(readme)
 
+        # Generate agent-facing SKILL.md
+        skill_gen = SkillGenerator(self.analyzer, server_name=self.server_name)
+        skill_file = skill_gen.generate(endpoints, output_path)
+
         return {
             "server_file": str(server_file),
             "config_file": str(config_file),
             "inventory_file": str(inventory_file),
             "env_file": str(env_file),
             "readme_file": str(readme_file),
+            "skill_file": str(skill_file),
             "tool_count": len(endpoints),
             "server_name": self.server_name,
         }
