@@ -1,0 +1,846 @@
+[
+  {
+    "name": "getmymember",
+    "operation_id": "getMyMember",
+    "method": "GET",
+    "path": "/members/me",
+    "summary": "Get current authenticated member",
+    "tags": [
+      "Members"
+    ],
+    "parameters": [
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "getmember",
+    "operation_id": "getMember",
+    "method": "GET",
+    "path": "/members/{id}",
+    "summary": "Get a member by ID or username",
+    "tags": [
+      "Members"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "getmemberboards",
+    "operation_id": "getMemberBoards",
+    "method": "GET",
+    "path": "/members/{id}/boards",
+    "summary": "Get all boards for a member",
+    "tags": [
+      "Members",
+      "Boards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      },
+      {
+        "name": "filter",
+        "original_name": "filter",
+        "location": "query",
+        "required": false,
+        "type": "Literal['all', 'closed', 'none', 'open', 'starred', 'unpinned']"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "getboard",
+    "operation_id": "getBoard",
+    "method": "GET",
+    "path": "/boards/{id}",
+    "summary": "Get a board by ID",
+    "tags": [
+      "Boards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "updateboard",
+    "operation_id": "updateBoard",
+    "method": "PUT",
+    "path": "/boards/{id}",
+    "summary": "Update a board",
+    "tags": [
+      "Boards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "deleteboard",
+    "operation_id": "deleteBoard",
+    "method": "DELETE",
+    "path": "/boards/{id}",
+    "summary": "Delete a board",
+    "tags": [
+      "Boards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "createboard",
+    "operation_id": "createBoard",
+    "method": "POST",
+    "path": "/boards",
+    "summary": "Create a new board",
+    "tags": [
+      "Boards"
+    ],
+    "parameters": [
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "getboardlists",
+    "operation_id": "getBoardLists",
+    "method": "GET",
+    "path": "/boards/{id}/lists",
+    "summary": "Get all lists on a board",
+    "tags": [
+      "Boards",
+      "Lists"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "filter",
+        "original_name": "filter",
+        "location": "query",
+        "required": false,
+        "type": "Literal['all', 'closed', 'none', 'open']"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "getboardcards",
+    "operation_id": "getBoardCards",
+    "method": "GET",
+    "path": "/boards/{id}/cards",
+    "summary": "Get all cards on a board",
+    "tags": [
+      "Boards",
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "createboardlabel",
+    "operation_id": "createBoardLabel",
+    "method": "POST",
+    "path": "/boards/{id}/labels",
+    "summary": "Create a label on a board",
+    "tags": [
+      "Boards",
+      "Labels"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "getlist",
+    "operation_id": "getList",
+    "method": "GET",
+    "path": "/lists/{id}",
+    "summary": "Get a list by ID",
+    "tags": [
+      "Lists"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "updatelist",
+    "operation_id": "updateList",
+    "method": "PUT",
+    "path": "/lists/{id}",
+    "summary": "Update a list (rename, archive, move)",
+    "tags": [
+      "Lists"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "createlist",
+    "operation_id": "createList",
+    "method": "POST",
+    "path": "/lists",
+    "summary": "Create a new list on a board",
+    "tags": [
+      "Lists"
+    ],
+    "parameters": [
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "getlistcards",
+    "operation_id": "getListCards",
+    "method": "GET",
+    "path": "/lists/{id}/cards",
+    "summary": "Get all cards in a list",
+    "tags": [
+      "Lists",
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "getcard",
+    "operation_id": "getCard",
+    "method": "GET",
+    "path": "/cards/{id}",
+    "summary": "Get a card by ID",
+    "tags": [
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "fields",
+        "original_name": "fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "updatecard",
+    "operation_id": "updateCard",
+    "method": "PUT",
+    "path": "/cards/{id}",
+    "summary": "Update a card (rename, move, add labels, set due date, etc.)",
+    "tags": [
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "deletecard",
+    "operation_id": "deleteCard",
+    "method": "DELETE",
+    "path": "/cards/{id}",
+    "summary": "Delete a card",
+    "tags": [
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "createcard",
+    "operation_id": "createCard",
+    "method": "POST",
+    "path": "/cards",
+    "summary": "Create a new card in a list",
+    "tags": [
+      "Cards"
+    ],
+    "parameters": [
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "getlabel",
+    "operation_id": "getLabel",
+    "method": "GET",
+    "path": "/labels/{id}",
+    "summary": "Get a label by ID",
+    "tags": [
+      "Labels"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "updatelabel",
+    "operation_id": "updateLabel",
+    "method": "PUT",
+    "path": "/labels/{id}",
+    "summary": "Update a label (rename, change color)",
+    "tags": [
+      "Labels"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": true
+  },
+  {
+    "name": "deletelabel",
+    "operation_id": "deleteLabel",
+    "method": "DELETE",
+    "path": "/labels/{id}",
+    "summary": "Delete a label from a board",
+    "tags": [
+      "Labels"
+    ],
+    "parameters": [
+      {
+        "name": "id",
+        "original_name": "id",
+        "location": "path",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      }
+    ],
+    "has_request_body": false
+  },
+  {
+    "name": "search",
+    "operation_id": "search",
+    "method": "GET",
+    "path": "/search",
+    "summary": "Search across boards, cards, and members",
+    "tags": [
+      "Search"
+    ],
+    "parameters": [
+      {
+        "name": "key",
+        "original_name": "key",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "token",
+        "original_name": "token",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "query",
+        "original_name": "query",
+        "location": "query",
+        "required": true,
+        "type": "str"
+      },
+      {
+        "name": "idorganizations",
+        "original_name": "idOrganizations",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      },
+      {
+        "name": "idboards",
+        "original_name": "idBoards",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      },
+      {
+        "name": "modeltypes",
+        "original_name": "modelTypes",
+        "location": "query",
+        "required": false,
+        "type": "Literal['actions', 'boards', 'cards', 'members', 'organizations']"
+      },
+      {
+        "name": "board_fields",
+        "original_name": "board_fields",
+        "location": "query",
+        "required": false,
+        "type": "str"
+      },
+      {
+        "name": "cards_limit",
+        "original_name": "cards_limit",
+        "location": "query",
+        "required": false,
+        "type": "int"
+      },
+      {
+        "name": "boards_limit",
+        "original_name": "boards_limit",
+        "location": "query",
+        "required": false,
+        "type": "int"
+      }
+    ],
+    "has_request_body": false
+  }
+]

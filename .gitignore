@@ -40,3 +40,8 @@ htmlcov/
 
 # MCP specific
 *.mcp.log
+
+# Trello MCP (private repo - include generated output)
+!output/trello/
+!output/trello/**
+specs/

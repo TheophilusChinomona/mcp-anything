@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "trello": {
+      "command": "python3",
+      "args": [
+        "output/trello/trello_server.py"
+      ],
+      "env": {
+        "TRELLO_BASE_URL": "${TRELLO_BASE_URL}",
+        "TRELLO_API_KEY": "${TRELLO_API_KEY}"
+      }
+    }
+  }
+}

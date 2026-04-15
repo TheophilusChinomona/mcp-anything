@@ -1,0 +1,799 @@
+openapi: 3.0.3
+info:
+  title: Trello REST API
+  description: |
+    Trello's REST API for managing boards, lists, cards, labels, and more.
+    Authentication: API key and token passed as query parameters.
+    Get your key at: https://trello.com/app-key
+  version: 1.0.0
+  contact:
+    url: https://developer.atlassian.com/cloud/trello/rest/api-group-actions/
+
+servers:
+  - url: https://api.trello.com/1
+    description: Trello API v1
+
+security:
+  - trelloAuth: []
+
+components:
+  securitySchemes:
+    trelloAuth:
+      type: apiKey
+      in: query
+      name: key
+      description: |
+        Trello API key and token. Both are required as query params.
+        Pass 'key' and 'token' as separate parameters.
+        
+  parameters:
+    KeyParam:
+      name: key
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Trello API key
+    
+    TokenParam:
+      name: token
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Trello API token
+
+    FieldsParam:
+      name: fields
+      in: query
+      schema:
+        type: string
+      description: Comma-separated list of fields to return (e.g. "name,id,desc")
+
+    BoardId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Board ID
+
+    ListId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: List ID
+
+    CardId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Card ID
+
+    LabelId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Label ID
+
+    MemberId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Member ID or username
+
+  schemas:
+    Board:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        desc:
+          type: string
+        closed:
+          type: boolean
+        idOrganization:
+          type: string
+        url:
+          type: string
+        shortUrl:
+          type: string
+        prefs:
+          type: object
+
+    List:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        closed:
+          type: boolean
+        idBoard:
+          type: string
+        pos:
+          type: string
+
+    Card:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        desc:
+          type: string
+        closed:
+          type: boolean
+        idList:
+          type: string
+        idBoard:
+          type: string
+        idLabels:
+          type: array
+          items:
+            type: string
+        due:
+          type: string
+          format: date-time
+        pos:
+          type: string
+        url:
+          type: string
+        shortUrl:
+          type: string
+
+    Label:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          enum: [yellow, purple, blue, red, green, orange, black, sky, pink, lime, null]
+        idBoard:
+          type: string
+
+    Member:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        url:
+          type: string
+
+paths:
+  # ─── MEMBERS ───────────────────────────────────────────────
+  /members/me:
+    get:
+      operationId: getMyMember
+      summary: Get current authenticated member
+      description: Returns the member profile for the authenticated user.
+      tags: [Members]
+      parameters:
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Member profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+
+  /members/{id}:
+    get:
+      operationId: getMember
+      summary: Get a member by ID or username
+      tags: [Members]
+      parameters:
+        - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Member profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+
+  /members/{id}/boards:
+    get:
+      operationId: getMemberBoards
+      summary: Get all boards for a member
+      tags: [Members, Boards]
+      parameters:
+        - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, closed, none, open, starred, unpinned]
+            default: open
+      responses:
+        '200':
+          description: List of boards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Board'
+
+  # ─── BOARDS ────────────────────────────────────────────────
+  /boards/{id}:
+    get:
+      operationId: getBoard
+      summary: Get a board by ID
+      tags: [Boards]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Board details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+    
+    put:
+      operationId: updateBoard
+      summary: Update a board
+      tags: [Boards]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New board name
+                desc:
+                  type: string
+                  description: New board description
+                closed:
+                  type: boolean
+                  description: Whether to close (archive) the board
+                prefs/permissionLevel:
+                  type: string
+                  enum: [org, private, public]
+                prefs/selfJoin:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated board
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+
+    delete:
+      operationId: deleteBoard
+      summary: Delete a board
+      tags: [Boards]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Board deleted
+
+  /boards:
+    post:
+      operationId: createBoard
+      summary: Create a new board
+      tags: [Boards]
+      parameters:
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Board name
+                desc:
+                  type: string
+                  description: Board description
+                idOrganization:
+                  type: string
+                  description: Organization ID to add the board to
+                idBoardSource:
+                  type: string
+                  description: ID of board to copy from
+                keepFromSource:
+                  type: string
+                  description: What to copy (cards, checklists, etc.)
+                defaultLists:
+                  type: boolean
+                  default: false
+                  description: Create default To Do / Doing / Done lists
+                prefs/permissionLevel:
+                  type: string
+                  enum: [org, private, public]
+      responses:
+        '200':
+          description: Created board
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+
+  /boards/{id}/lists:
+    get:
+      operationId: getBoardLists
+      summary: Get all lists on a board
+      tags: [Boards, Lists]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, closed, none, open]
+            default: open
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Lists on the board
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/List'
+
+  /boards/{id}/cards:
+    get:
+      operationId: getBoardCards
+      summary: Get all cards on a board
+      tags: [Boards, Cards]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Cards on the board
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Card'
+
+  /boards/{id}/labels:
+    get:
+      operationId: getBoardLabels
+      summary: Get all labels on a board
+      tags: [Boards, Labels]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Labels on the board
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Label'
+
+  /boards/{id}/labels:
+    post:
+      operationId: createBoardLabel
+      summary: Create a label on a board
+      tags: [Boards, Labels]
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, color]
+              properties:
+                name:
+                  type: string
+                color:
+                  type: string
+                  enum: [yellow, purple, blue, red, green, orange, black, sky, pink, lime]
+      responses:
+        '200':
+          description: Created label
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+
+  # ─── LISTS ─────────────────────────────────────────────────
+  /lists/{id}:
+    get:
+      operationId: getList
+      summary: Get a list by ID
+      tags: [Lists]
+      parameters:
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: List details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+
+    put:
+      operationId: updateList
+      summary: Update a list (rename, archive, move)
+      tags: [Lists]
+      parameters:
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New list name
+                closed:
+                  type: boolean
+                  description: Archive/restore the list
+                idBoard:
+                  type: string
+                  description: Move list to this board
+                pos:
+                  type: string
+                  description: Position (top, bottom, or positive number)
+      responses:
+        '200':
+          description: Updated list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+
+  /lists:
+    post:
+      operationId: createList
+      summary: Create a new list on a board
+      tags: [Lists]
+      parameters:
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, idBoard]
+              properties:
+                name:
+                  type: string
+                idBoard:
+                  type: string
+                  description: Board ID to create list on
+                idListSource:
+                  type: string
+                  description: Copy cards from this list
+                pos:
+                  type: string
+                  description: Position (top, bottom, or positive number)
+      responses:
+        '200':
+          description: Created list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+
+  /lists/{id}/cards:
+    get:
+      operationId: getListCards
+      summary: Get all cards in a list
+      tags: [Lists, Cards]
+      parameters:
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Cards in the list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Card'
+
+  # ─── CARDS ─────────────────────────────────────────────────
+  /cards/{id}:
+    get:
+      operationId: getCard
+      summary: Get a card by ID
+      tags: [Cards]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - $ref: '#/components/parameters/FieldsParam'
+      responses:
+        '200':
+          description: Card details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+
+    put:
+      operationId: updateCard
+      summary: Update a card (rename, move, add labels, set due date, etc.)
+      tags: [Cards]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Card name
+                desc:
+                  type: string
+                  description: Card description (Markdown supported)
+                closed:
+                  type: boolean
+                  description: Archive/restore the card
+                idList:
+                  type: string
+                  description: Move card to this list
+                idLabels:
+                  type: string
+                  description: Comma-separated label IDs to apply
+                due:
+                  type: string
+                  format: date-time
+                  description: Due date (ISO 8601)
+                dueComplete:
+                  type: boolean
+                  description: Mark due date as complete
+                pos:
+                  type: string
+                  description: Position (top, bottom, or positive number)
+      responses:
+        '200':
+          description: Updated card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+
+    delete:
+      operationId: deleteCard
+      summary: Delete a card
+      tags: [Cards]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Card deleted
+
+  /cards:
+    post:
+      operationId: createCard
+      summary: Create a new card in a list
+      tags: [Cards]
+      parameters:
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, idList]
+              properties:
+                name:
+                  type: string
+                  description: Card name
+                desc:
+                  type: string
+                  description: Card description (Markdown supported)
+                idList:
+                  type: string
+                  description: List ID to create card in
+                idLabels:
+                  type: string
+                  description: Comma-separated label IDs
+                due:
+                  type: string
+                  format: date-time
+                  description: Due date
+                pos:
+                  type: string
+                  description: Position (top, bottom, or positive number)
+                urlSource:
+                  type: string
+                  description: URL to attach
+      responses:
+        '200':
+          description: Created card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+
+  # ─── LABELS ────────────────────────────────────────────────
+  /labels/{id}:
+    get:
+      operationId: getLabel
+      summary: Get a label by ID
+      tags: [Labels]
+      parameters:
+        - $ref: '#/components/parameters/LabelId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Label details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+
+    put:
+      operationId: updateLabel
+      summary: Update a label (rename, change color)
+      tags: [Labels]
+      parameters:
+        - $ref: '#/components/parameters/LabelId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                color:
+                  type: string
+                  enum: [yellow, purple, blue, red, green, orange, black, sky, pink, lime]
+      responses:
+        '200':
+          description: Updated label
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+
+    delete:
+      operationId: deleteLabel
+      summary: Delete a label from a board
+      tags: [Labels]
+      parameters:
+        - $ref: '#/components/parameters/LabelId'
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Label deleted
+
+  # ─── SEARCH ────────────────────────────────────────────────
+  /search:
+    get:
+      operationId: search
+      summary: Search across boards, cards, and members
+      tags: [Search]
+      parameters:
+        - $ref: '#/components/parameters/KeyParam'
+        - $ref: '#/components/parameters/TokenParam'
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query string
+        - name: idOrganizations
+          in: query
+          schema:
+            type: string
+          description: Comma-separated org IDs to limit search
+        - name: idBoards
+          in: query
+          schema:
+            type: string
+          description: Comma-separated board IDs to limit search
+        - name: modelTypes
+          in: query
+          schema:
+            type: string
+            enum: [actions, boards, cards, members, organizations]
+          description: Comma-separated model types to search
+        - name: board_fields
+          in: query
+          schema:
+            type: string
+          description: Fields for board results
+        - name: cards_limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Max card results
+        - name: boards_limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Max board results
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
