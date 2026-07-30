@@ -9,7 +9,7 @@ import keyword
 import re
 import textwrap
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from mcp_anything.analyzer import EndpointInfo, OpenAPIAnalyzer, ParameterInfo
 from mcp_anything import runtime as runtime_module
@@ -198,6 +198,63 @@ if __name__ == "__main__":
 '''
 
 
+RUNTIME_TEMPLATE = '''"""Runtime capability policy for a generated MCP server."""
+
+from __future__ import annotations
+
+import os
+
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+class CapabilityDenied(PermissionError):
+    """Raised when a generated tool is outside its configured profile."""
+
+
+class CapabilityPolicy:
+    def __init__(
+        self,
+        *,
+        allow_writes: bool = False,
+        allowed_tags: set[str] | None = None,
+        allowed_operations: set[str] | None = None,
+        denied_operations: set[str] | None = None,
+    ):
+        self.allow_writes = allow_writes
+        self.allowed_tags = allowed_tags or set()
+        self.allowed_operations = allowed_operations or set()
+        self.denied_operations = denied_operations or set()
+
+    @classmethod
+    def from_env(cls, prefix: str) -> "CapabilityPolicy":
+        def csv(name: str) -> set[str]:
+            return {
+                value.strip()
+                for value in os.environ.get(f"{prefix}_{name}", "").split(",")
+                if value.strip()
+            }
+
+        return cls(
+            allow_writes=os.environ.get(f"{prefix}_ALLOW_WRITES", "false").lower()
+            in {"1", "true", "yes"},
+            allowed_tags=csv("ALLOWED_TAGS"),
+            allowed_operations=csv("ALLOWED_OPERATIONS"),
+            denied_operations=csv("DENIED_OPERATIONS"),
+        )
+
+    def check(self, method: str, operation_id: str = "", tags: list[str] | None = None) -> None:
+        if operation_id in self.denied_operations:
+            raise CapabilityDenied(f"Operation is denied: {operation_id}")
+        if self.allowed_operations and operation_id not in self.allowed_operations:
+            raise CapabilityDenied(f"Operation is not allowlisted: {operation_id}")
+        if self.allowed_tags and not self.allowed_tags.intersection(tags or []):
+            raise CapabilityDenied("Operation tags are not allowlisted")
+        if method.upper() not in SAFE_METHODS and not self.allow_writes:
+            raise CapabilityDenied("State-changing operations are disabled")
+'''
+
+
 class MCPServerGenerator:
     """Generate a complete, policy-controlled FastMCP server."""
 
@@ -247,6 +304,7 @@ class MCPServerGenerator:
         all_endpoints = self.analyzer.extract_endpoints()
         endpoints = self._filter_endpoints(all_endpoints)
         summary = self.analyzer.summary()
+        summary["endpoint_count"] = len(endpoints)
 
         tool_lines = [self._generate_tool(endpoint) for endpoint in endpoints]
         server_code = SERVER_TEMPLATE.format(
@@ -273,7 +331,7 @@ class MCPServerGenerator:
 
         inventory = self._generate_inventory(endpoints)
         inventory_file = output_path / "tools_inventory.json"
-        inventory_file.write_text(json.dumps(inventory, indent=2))
+        inventory_file.write_text(json.dumps(self._generate_inventory(endpoints), indent=2))
 
         env_file = output_path / ".env.example"
         env_file.write_text(
@@ -314,6 +372,25 @@ class MCPServerGenerator:
             "allowed_tags": sorted(self.allowed_tags),
             "allowed_operations": sorted(self.allowed_operations),
             "denied_operations": sorted(self.denied_operations),
+        }
+        manifest_file = output_path / "generation_manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2))
+
+        runtime_file = output_path / "mcp_runtime.py"
+        runtime_file.write_text(RUNTIME_TEMPLATE)
+
+        manifest = {
+            "generator": "mcp-anything",
+            "spec_source": self.analyzer.spec_source,
+            "spec_sha256": self._spec_sha256(),
+            "server_name": self.server_name,
+            "endpoint_count": len(endpoints),
+            "source_endpoint_count": len(source_endpoints),
+            "allow_writes": self.allow_writes,
+            "env_prefix": self.env_prefix,
+            "allowed_tags": list(self.allowed_tags),
+            "allowed_operations": list(self.allowed_operations),
+            "denied_operations": list(self.denied_operations),
         }
         manifest_file = output_path / "generation_manifest.json"
         manifest_file.write_text(json.dumps(manifest, indent=2))
