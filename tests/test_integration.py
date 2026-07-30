@@ -24,7 +24,7 @@ class TestEndToEnd:
         assert summary["title"] == "Test Pet Store"
 
         # Step 2: Generate
-        generator = MCPServerGenerator(analyzer, server_name="e2e-test")
+        generator = MCPServerGenerator(analyzer, server_name="e2e-test", allow_writes=True)
         result = generator.generate(output_dir)
 
         assert result["tool_count"] == 5
@@ -70,12 +70,12 @@ class TestEndToEnd:
         analyzer.load()
 
         # Generate with name A
-        gen_a = MCPServerGenerator(analyzer, server_name="api-alpha")
+        gen_a = MCPServerGenerator(analyzer, server_name="api-alpha", allow_writes=True)
         dir_a = str(Path(output_dir) / "a")
         result_a = gen_a.generate(dir_a)
 
         # Generate with name B
-        gen_b = MCPServerGenerator(analyzer, server_name="api-beta")
+        gen_b = MCPServerGenerator(analyzer, server_name="api-beta", allow_writes=True)
         dir_b = str(Path(output_dir) / "b")
         result_b = gen_b.generate(dir_b)
 
