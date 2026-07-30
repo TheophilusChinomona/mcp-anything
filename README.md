@@ -346,6 +346,28 @@ Credentials belong only in the remote environment file, never in this JSON. Afte
 
 The first deployment does not use Tailscale Funnel, public DNS, or Streamable HTTP. Tailscale Serve is a later option only if multiple clients require a shared URL.
 
+### Ticket write profile
+
+A write-capable profile (`speccon-crm-devpm-write`) is available alongside the read-only profile. It adds ticket and subtask workflow operations:
+
+- Server: `speccon-crm-devpm-write`
+- Environment prefix: `SPECCON_DEVPM` (same as read profile)
+- Allowed methods: `GET, POST, PUT, PATCH`
+- Writes: enabled (ticket-scoped only)
+- Expected tools: 161 (139 reads + 22 ticket/subtask writes)
+- Deletes: excluded (6 tools denied)
+
+Generate:
+
+```bash
+python ops/generate_devpm_profile.py \
+  --profile write \
+  --spec specs/speccon-openapi.json \
+  --output output/speccon/profiles/devpm-write
+```
+
+The agent prompt at `docs/agent-prompts/speccon-erp-mcp-setup.md` contains the behavioral rules for using the write profile.
+
 ## LLM enhancement
 
 LLM enhancement is optional. It enriches descriptions and examples; it does not replace the OpenAPI schema or runtime capability policy.
