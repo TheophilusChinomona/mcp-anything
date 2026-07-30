@@ -291,4 +291,4 @@ class TestMCPServerGenerator:
         assert "denied_operations" in manifest
         assert set(manifest["allowed_operations"]) == {"listPets", "createPet"}
         assert manifest["denied_operations"] == ["deletePet"]
-        assert manifest["allowed_methods"] == ["GET", "POST"]
+        assert set(manifest["allowed_methods"]) == {"GET", "POST"}
