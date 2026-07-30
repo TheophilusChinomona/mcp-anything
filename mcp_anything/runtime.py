@@ -42,11 +42,15 @@ class CapabilityPolicy:
         allowed_tags: Optional[set[str]] = None,
         allowed_operations: Optional[set[str]] = None,
         denied_operations: Optional[set[str]] = None,
+        allowed_methods: Optional[set[str]] = None,
     ):
         self.allow_writes = allow_writes
         self.allowed_tags = {tag for tag in (allowed_tags or set()) if tag}
         self.allowed_operations = {op for op in (allowed_operations or set()) if op}
         self.denied_operations = {op for op in (denied_operations or set()) if op}
+        self.allowed_methods = {
+            method.upper() for method in (allowed_methods or set()) if method
+        }
 
     @classmethod
     def from_env(cls, prefix: str = "MCP") -> "CapabilityPolicy":
@@ -62,6 +66,7 @@ class CapabilityPolicy:
         return cls(
             allow_writes=os.environ.get(f"{prefix}_ALLOW_WRITES", "false").lower()
             in {"1", "true", "yes"},
+            allowed_methods=csv("ALLOWED_METHODS") or None,
             allowed_tags=csv("ALLOWED_TAGS"),
             allowed_operations=csv("ALLOWED_OPERATIONS"),
             denied_operations=csv("DENIED_OPERATIONS"),
@@ -75,6 +80,8 @@ class CapabilityPolicy:
             raise CapabilityDenied(f"Operation is not allowlisted: {operation_id}")
         if self.allowed_tags and not self.allowed_tags.intersection(tags or []):
             raise CapabilityDenied(f"Operation tags are not allowlisted: {', '.join(tags or [])}")
+        if self.allowed_methods and method not in self.allowed_methods:
+            raise CapabilityDenied(f"HTTP method is not allowlisted: {method}")
         if method not in SAFE_METHODS and not self.allow_writes:
             raise CapabilityDenied("State-changing operations are disabled")
 

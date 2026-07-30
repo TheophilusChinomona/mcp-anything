@@ -21,6 +21,16 @@ def test_read_only_policy_denies_state_changes_by_default():
     policy.check("GET", "list_clients", ["Client"])
 
 
+
+def test_explicit_method_allowlist_denies_head_and_options(monkeypatch):
+    monkeypatch.setenv("SPECCON_DEVPM_ALLOWED_METHODS", "GET")
+    policy = CapabilityPolicy.from_env("SPECCON_DEVPM")
+
+    policy.check("GET", "list_projects")
+    for method in ("HEAD", "OPTIONS"):
+        with pytest.raises(CapabilityDenied):
+            policy.check(method, "list_projects")
+
 def test_auth_session_logs_in_and_refreshes_with_valid_tokens():
     calls = []
     responses = [

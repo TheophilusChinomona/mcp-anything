@@ -198,61 +198,6 @@ if __name__ == "__main__":
 '''
 
 
-RUNTIME_TEMPLATE = '''"""Runtime capability policy for a generated MCP server."""
-
-from __future__ import annotations
-
-import os
-
-
-SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-
-class CapabilityDenied(PermissionError):
-    """Raised when a generated tool is outside its configured profile."""
-
-
-class CapabilityPolicy:
-    def __init__(
-        self,
-        *,
-        allow_writes: bool = False,
-        allowed_tags: set[str] | None = None,
-        allowed_operations: set[str] | None = None,
-        denied_operations: set[str] | None = None,
-    ):
-        self.allow_writes = allow_writes
-        self.allowed_tags = allowed_tags or set()
-        self.allowed_operations = allowed_operations or set()
-        self.denied_operations = denied_operations or set()
-
-    @classmethod
-    def from_env(cls, prefix: str) -> "CapabilityPolicy":
-        def csv(name: str) -> set[str]:
-            return {
-                value.strip()
-                for value in os.environ.get(f"{prefix}_{name}", "").split(",")
-                if value.strip()
-            }
-
-        return cls(
-            allow_writes=os.environ.get(f"{prefix}_ALLOW_WRITES", "false").lower()
-            in {"1", "true", "yes"},
-            allowed_tags=csv("ALLOWED_TAGS"),
-            allowed_operations=csv("ALLOWED_OPERATIONS"),
-            denied_operations=csv("DENIED_OPERATIONS"),
-        )
-
-    def check(self, method: str, operation_id: str = "", tags: list[str] | None = None) -> None:
-        if operation_id in self.denied_operations:
-            raise CapabilityDenied(f"Operation is denied: {operation_id}")
-        if self.allowed_operations and operation_id not in self.allowed_operations:
-            raise CapabilityDenied(f"Operation is not allowlisted: {operation_id}")
-        if self.allowed_tags and not self.allowed_tags.intersection(tags or []):
-            raise CapabilityDenied("Operation tags are not allowlisted")
-        if method.upper() not in SAFE_METHODS and not self.allow_writes:
-            raise CapabilityDenied("State-changing operations are disabled")
-'''
 
 
 class MCPServerGenerator:
@@ -268,15 +213,19 @@ class MCPServerGenerator:
         allowed_tags: Optional[set[str]] = None,
         allowed_operations: Optional[set[str]] = None,
         denied_operations: Optional[set[str]] = None,
+        allowed_methods: Optional[set[str]] = None,
         max_documented_tools: int = 500,
     ):
         self.analyzer = analyzer
         self.server_name = server_name or self._derive_server_name()
         self.env_prefix = env_prefix or self.server_name.upper().replace("-", "_").replace(" ", "_")
         self.allow_writes = allow_writes
-        self.allowed_tags = allowed_tags or set()
-        self.allowed_operations = allowed_operations or set()
-        self.denied_operations = denied_operations or set()
+        self.allowed_tags = {tag for tag in (allowed_tags or set()) if tag}
+        self.allowed_operations = {op for op in (allowed_operations or set()) if op}
+        self.denied_operations = {op for op in (denied_operations or set()) if op}
+        self.allowed_methods = {
+            method.upper() for method in (allowed_methods or set()) if method
+        }
         self.max_documented_tools = max_documented_tools
 
     def _derive_server_name(self) -> str:
@@ -286,6 +235,8 @@ class MCPServerGenerator:
     def _filter_endpoints(self, endpoints: list[EndpointInfo]) -> list[EndpointInfo]:
         result = []
         for endpoint in endpoints:
+            if self.allowed_methods and endpoint.method not in self.allowed_methods:
+                continue
             if not self.allow_writes and endpoint.method not in SAFE_METHODS:
                 continue
             if self.allowed_tags and not self.allowed_tags.intersection(endpoint.tags):
@@ -341,6 +292,7 @@ class MCPServerGenerator:
             f"{self.env_prefix}_PASSWORD=\n"
             f"{self.env_prefix}_API_KEY=\n"
             f"{self.env_prefix}_ALLOW_WRITES={'true' if self.allow_writes else 'false'}\n"
+            f"{self.env_prefix}_ALLOWED_METHODS={','.join(sorted(self.allowed_methods))}\n"
             f"{self.env_prefix}_ALLOWED_TAGS=\n"
             f"{self.env_prefix}_ALLOWED_OPERATIONS=\n"
             f"{self.env_prefix}_DENIED_OPERATIONS=\n"
@@ -368,6 +320,7 @@ class MCPServerGenerator:
             "endpoint_count": len(endpoints),
             "source_endpoint_count": len(all_endpoints),
             "allow_writes": self.allow_writes,
+            "allowed_methods": sorted(self.allowed_methods),
             "env_prefix": self.env_prefix,
             "allowed_tags": sorted(self.allowed_tags),
             "allowed_operations": sorted(self.allowed_operations),
@@ -376,24 +329,6 @@ class MCPServerGenerator:
         manifest_file = output_path / "generation_manifest.json"
         manifest_file.write_text(json.dumps(manifest, indent=2))
 
-        runtime_file = output_path / "mcp_runtime.py"
-        runtime_file.write_text(RUNTIME_TEMPLATE)
-
-        manifest = {
-            "generator": "mcp-anything",
-            "spec_source": self.analyzer.spec_source,
-            "spec_sha256": self._spec_sha256(),
-            "server_name": self.server_name,
-            "endpoint_count": len(endpoints),
-            "source_endpoint_count": len(source_endpoints),
-            "allow_writes": self.allow_writes,
-            "env_prefix": self.env_prefix,
-            "allowed_tags": list(self.allowed_tags),
-            "allowed_operations": list(self.allowed_operations),
-            "denied_operations": list(self.denied_operations),
-        }
-        manifest_file = output_path / "generation_manifest.json"
-        manifest_file.write_text(json.dumps(manifest, indent=2))
 
         return {
             "server_file": str(server_file),
@@ -432,6 +367,7 @@ class MCPServerGenerator:
                 allowed_tags=options.pop("allowed_tags", set()),
                 allowed_operations=options.pop("allowed_operations", set()),
                 denied_operations=options.pop("denied_operations", set()),
+                allowed_methods=options.pop("allowed_methods", set()),
                 max_documented_tools=options.pop(
                     "max_documented_tools", self.max_documented_tools
                 ),
@@ -489,6 +425,9 @@ def {func_name}({params}) -> dict:
                         f"{self.env_prefix}_ALLOW_WRITES": "true"
                         if self.allow_writes
                         else "false",
+                        f"{self.env_prefix}_ALLOWED_METHODS": ",".join(
+                            sorted(self.allowed_methods)
+                        ),
                         f"{self.env_prefix}_ALLOWED_TAGS": ",".join(
                             sorted(self.allowed_tags)
                         ),
