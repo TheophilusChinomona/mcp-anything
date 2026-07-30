@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
+import keyword
 import re
 import textwrap
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
-from mcp_anything.analyzer import OpenAPIAnalyzer, EndpointInfo
+from mcp_anything.analyzer import EndpointInfo, OpenAPIAnalyzer, ParameterInfo
+from mcp_anything import runtime as runtime_module
+from mcp_anything.runtime import SAFE_METHODS
 from mcp_anything.skill_gen import SkillGenerator
 
 
@@ -16,11 +21,12 @@ from mcp_anything.skill_gen import SkillGenerator
 
 def _sanitize_name(name: str) -> str:
     """Make a string safe as a Python identifier."""
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    name = re.sub(r'_+', '_', name).strip('_')
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    name = re.sub(r"_+", "_", name).strip("_")
     if name and name[0].isdigit():
         name = f"op_{name}"
-    return name.lower()
+    name = name.lower()
+    return f"_{name}" if keyword.iskeyword(name) else name
 
 
 def _schema_to_python_type(schema: dict) -> str:
@@ -28,100 +34,109 @@ def _schema_to_python_type(schema: dict) -> str:
     if not schema:
         return "Any"
 
-    t = schema.get("type", "any")
-
     if "enum" in schema:
         vals = schema["enum"]
         if all(isinstance(v, str) for v in vals):
             return f"Literal[{', '.join(repr(v) for v in vals)}]"
         return "Any"
 
+    schema_type = schema.get("type", "any")
     type_map = {
         "string": "str",
         "integer": "int",
         "number": "float",
         "boolean": "bool",
-        "array": f"list[{_schema_to_python_type(schema.get('items', {}))}]",
         "object": "dict",
     }
-    return type_map.get(t, "Any")
+    if schema_type == "array":
+        return f"list[{_schema_to_python_type(schema.get('items', {}))}]"
+    return type_map.get(schema_type, "Any")
 
 
 def _schema_to_default(schema: dict, required: bool) -> str:
-    """Generate default value expression for a parameter."""
+    """Generate a safe default value expression for a parameter."""
     if required:
         return ""
     if "default" in schema:
         return f" = {repr(schema['default'])}"
-    type_defaults = {
-        "string": ' = ""',
-        "integer": " = 0",
-        "number": " = 0.0",
-        "boolean": " = False",
-        "array": " = []",
-        "object": " = {}",
-    }
-    return type_defaults.get(schema.get("type", ""), " = None")
+    # None avoids mutable defaults and preserves omitted-vs-present semantics.
+    return " = None"
+
+
+def _parameter_bindings(
+    endpoint: EndpointInfo,
+) -> tuple[list[tuple[ParameterInfo, str]], Optional[str]]:
+    """Allocate unique local names for all parameters and the request body."""
+    used = {"path", "query_params", "header_params", "cookie_params", "request_body"}
+    bindings: list[tuple[ParameterInfo, str]] = []
+
+    for parameter in endpoint.parameters:
+        base = _sanitize_name(parameter.name) or "param"
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        bindings.append((parameter, candidate))
+
+    body_name = None
+    if endpoint.request_body:
+        body_name = "body"
+        suffix = 2
+        while body_name in used:
+            body_name = f"body_{suffix}"
+            suffix += 1
+    return bindings, body_name
 
 
 def _build_param_signature(endpoint: EndpointInfo) -> str:
     """Build the Python function parameter list for an endpoint."""
-    parts = []
-
-    # Path parameters first (always required)
-    path_params = [p for p in endpoint.parameters if p.location == "path"]
-    for p in path_params:
-        py_type = _schema_to_python_type(p.schema)
-        parts.append(f"{_sanitize_name(p.name)}: {py_type}")
-
-    # Query parameters
-    query_params = [p for p in endpoint.parameters if p.location == "query"]
-    for p in query_params:
-        py_type = _schema_to_python_type(p.schema)
-        default = _schema_to_default(p.schema, p.required)
-        parts.append(f"{_sanitize_name(p.name)}: {py_type}{default}")
-
-    # Request body as a single dict param
-    if endpoint.request_body:
-        parts.append("body: dict = {}")
-
-    return ", ".join(parts)
+    bindings, body_name = _parameter_bindings(endpoint)
+    parts: list[tuple[int, str]] = []
+    for parameter, local_name in bindings:
+        required = parameter.required or parameter.location == "path"
+        default = _schema_to_default(parameter.schema, required)
+        parts.append((0 if required else 1, f"{local_name}: {_schema_to_python_type(parameter.schema)}{default}"))
+    if body_name:
+        parts.append((2, f"{body_name}: dict = None"))
+    parts.sort(key=lambda item: item[0])
+    return ", ".join(part for _, part in parts)
 
 
 def _build_url_template(path: str, parameters: list) -> str:
-    """Convert OpenAPI path template to f-string template with sanitized names."""
-    # Build mapping: original_name -> sanitized_name
+    """Convert OpenAPI path templates to URL-encoded f-string expressions."""
     name_map = {}
-    for p in parameters:
-        if p.location == "path":
-            name_map[p.name] = _sanitize_name(p.name)
-    
-    def replacer(m):
-        orig = m.group(1)
-        return '{' + name_map.get(orig, _sanitize_name(orig)) + '}'
-    
-    return re.sub(r'\{(\w+)\}', replacer, path)
+    for item in parameters:
+        parameter = item[0] if isinstance(item, tuple) else item
+        local_name = item[1] if isinstance(item, tuple) else _sanitize_name(parameter.name)
+        if parameter.location == "path":
+            name_map[parameter.name] = local_name
+
+    def replacer(match: re.Match[str]) -> str:
+        local_name = name_map.get(match.group(1), _sanitize_name(match.group(1)))
+        return "{quote(str(" + local_name + "), safe='')}"
+
+    return re.sub(r"\{(\w+)\}", replacer, path)
 
 
-def _build_query_params(endpoint: EndpointInfo) -> str:
-    """Generate query parameter construction code."""
-    query_params = [p for p in endpoint.parameters if p.location == "query"]
-    if not query_params:
-        return "    query_params = {}"
-
-    lines = ["    query_params = {}"]
-    for p in query_params:
-        var_name = _sanitize_name(p.name)
-        lines.append(f"    if {var_name} is not None and {var_name} != '':")
-        lines.append(f'        query_params["{p.name}"] = {var_name}')
-
+def _build_parameter_map(
+    bindings: list[tuple[ParameterInfo, str]],
+    location: str,
+    variable_name: str,
+) -> str:
+    lines = [f"    {variable_name} = {{}}"]
+    for parameter, local_name in bindings:
+        if parameter.location != location:
+            continue
+        lines.append(f"    if {local_name} is not None:")
+        lines.append(f"        {variable_name}[{json.dumps(parameter.name)}] = {local_name}")
     return "\n".join(lines)
 
 
 # ─── Server code template ───────────────────────────────────────────────────
 
-SERVER_TEMPLATE = '''"""
-{name} - MCP Server
+SERVER_TEMPLATE = '''"""{name} - MCP Server
 Auto-generated by MCP-Anything from {spec_source}
 
 Title: {title}
@@ -130,294 +145,371 @@ Base URL: {base_url}
 Endpoints: {endpoint_count}
 """
 
-import json
 import os
-from typing import Any, Literal, Optional
+from typing import Any, Literal
+from urllib.parse import quote
 
-import httpx
 from fastmcp import FastMCP
-
-# ─── Configuration ──────────────────────────────────────────────────────
+from mcp_runtime import AuthSession, CapabilityPolicy, MCPHttpClient
 
 BASE_URL = os.environ.get("{env_prefix}_BASE_URL", "{base_url}")
-API_KEY = os.environ.get("{env_prefix}_API_KEY", "")
+AUTH = AuthSession(
+    BASE_URL,
+    email=os.environ.get("{env_prefix}_EMAIL", ""),
+    password=os.environ.get("{env_prefix}_PASSWORD", ""),
+    static_token=os.environ.get("{env_prefix}_API_KEY", ""),
+)
+POLICY = CapabilityPolicy.from_env("{env_prefix}")
+HTTP = MCPHttpClient(AUTH, POLICY)
 
-# ─── HTTP Client ────────────────────────────────────────────────────────
 
-def _get_headers() -> dict:
-    headers = {{"Content-Type": "application/json", "Accept": "application/json"}}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {{API_KEY}}"
-    return headers
+def _request(
+    method: str,
+    path: str,
+    *,
+    params: dict | None = None,
+    headers: dict | None = None,
+    cookies: dict | None = None,
+    body: dict | None = None,
+    content_type: str = "application/json",
+    operation_id: str = "",
+    tags: list[str] | None = None,
+) -> dict:
+    return HTTP.request(
+        method,
+        path,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        body=body,
+        content_type=content_type,
+        operation_id=operation_id,
+        tags=tags,
+    )
 
-def _request(method: str, path: str, params: dict = None, body: dict = None) -> dict:
-    """Make an HTTP request and return parsed JSON."""
-    url = BASE_URL.rstrip("/") + path
-    with httpx.Client(timeout=30) as client:
-        resp = client.request(
-            method=method,
-            url=url,
-            params=params or {{}},
-            json=body if body else None,
-            headers=_get_headers(),
-        )
-        resp.raise_for_status()
-        if resp.status_code == 204:
-            return {{"status": "success", "code": 204}}
-        try:
-            return resp.json()
-        except Exception:
-            return {{"status": "success", "text": resp.text[:2000]}}
-
-# ─── MCP Server ─────────────────────────────────────────────────────────
 
 mcp = FastMCP("{name}")
 
 {tool_definitions}
+
+
+if __name__ == "__main__":
+    mcp.run()
 '''
 
-TOOL_TEMPLATE = '''@mcp.tool()
-def {func_name}({params}) -> dict:
-    """
-    {summary}
-    
-    {description}
-{param_docs}
-    """
-{body}
-'''
+
 
 
 class MCPServerGenerator:
-    """Generate a complete FastMCP server from an OpenAPI spec."""
+    """Generate a complete, policy-controlled FastMCP server."""
 
     def __init__(
         self,
         analyzer: OpenAPIAnalyzer,
         server_name: str = "",
         env_prefix: str = "",
+        *,
+        allow_writes: bool = False,
+        allowed_tags: Optional[set[str]] = None,
+        allowed_operations: Optional[set[str]] = None,
+        denied_operations: Optional[set[str]] = None,
+        allowed_methods: Optional[set[str]] = None,
+        max_documented_tools: int = 500,
     ):
         self.analyzer = analyzer
         self.server_name = server_name or self._derive_server_name()
         self.env_prefix = env_prefix or self.server_name.upper().replace("-", "_").replace(" ", "_")
+        self.allow_writes = allow_writes
+        self.allowed_tags = {tag for tag in (allowed_tags or set()) if tag}
+        self.allowed_operations = {op for op in (allowed_operations or set()) if op}
+        self.denied_operations = {op for op in (denied_operations or set()) if op}
+        self.allowed_methods = {
+            method.upper() for method in (allowed_methods or set()) if method
+        }
+        self.max_documented_tools = max_documented_tools
 
     def _derive_server_name(self) -> str:
-        summary = self.analyzer.summary()
-        title = summary.get("title", "api")
-        return re.sub(r'[^a-zA-Z0-9_-]', '-', title.lower()).strip('-') or "generated-api"
+        title = self.analyzer.summary().get("title", "api")
+        return re.sub(r"[^a-zA-Z0-9_-]", "-", title.lower()).strip("-") or "generated-api"
+
+    def _filter_endpoints(self, endpoints: list[EndpointInfo]) -> list[EndpointInfo]:
+        result = []
+        for endpoint in endpoints:
+            if self.allowed_methods and endpoint.method not in self.allowed_methods:
+                continue
+            if not self.allow_writes and endpoint.method not in SAFE_METHODS:
+                continue
+            if self.allowed_tags and not self.allowed_tags.intersection(endpoint.tags):
+                continue
+            if self.allowed_operations and endpoint.operation_id not in self.allowed_operations:
+                continue
+            if endpoint.operation_id in self.denied_operations:
+                continue
+            result.append(endpoint)
+        return result
 
     def generate(self, output_dir: str = "./output") -> dict:
-        """Generate the complete MCP server package.
-
-        Returns:
-            dict with paths to generated files.
-        """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        endpoints = self.analyzer.extract_endpoints()
+        all_endpoints = self.analyzer.extract_endpoints()
+        endpoints = self._filter_endpoints(all_endpoints)
         summary = self.analyzer.summary()
+        summary["endpoint_count"] = len(endpoints)
 
-        # Generate tool definitions
-        tool_lines = []
-        for ep in endpoints:
-            tool_code = self._generate_tool(ep)
-            tool_lines.append(tool_code)
-
-        # Generate server code
+        tool_lines = [self._generate_tool(endpoint) for endpoint in endpoints]
         server_code = SERVER_TEMPLATE.format(
             name=self.server_name,
             spec_source=self.analyzer.spec_source[:100],
             title=summary["title"],
             version=summary["version"],
             base_url=summary["base_url"],
-            endpoint_count=summary["endpoint_count"],
+            endpoint_count=len(endpoints),
             env_prefix=self.env_prefix,
             tool_definitions="\n".join(tool_lines),
         )
 
-        # Write server file
         server_file = output_path / f"{_sanitize_name(self.server_name)}_server.py"
         server_file.write_text(server_code)
+        compile(server_code, str(server_file), "exec")
 
-        # Write config for MCP clients
-        config = self._generate_mcp_config(str(server_file))
+        runtime_file = output_path / "mcp_runtime.py"
+        runtime_source = Path(inspect.getfile(runtime_module)).read_text()
+        compile(runtime_source, str(runtime_file), "exec")
+        runtime_file.write_text(runtime_source)
         config_file = output_path / "mcp_config.json"
-        config_file.write_text(json.dumps(config, indent=2))
+        config_file.write_text(json.dumps(self._generate_mcp_config(str(server_file)), indent=2))
 
-        # Write tool inventory
         inventory = self._generate_inventory(endpoints)
         inventory_file = output_path / "tools_inventory.json"
-        inventory_file.write_text(json.dumps(inventory, indent=2))
+        inventory_file.write_text(json.dumps(self._generate_inventory(endpoints), indent=2))
 
-        # Write env template
         env_file = output_path / ".env.example"
         env_file.write_text(
             f"# {self.server_name} MCP Server Configuration\n"
             f"{self.env_prefix}_BASE_URL={summary['base_url']}\n"
+            f"{self.env_prefix}_EMAIL=\n"
+            f"{self.env_prefix}_PASSWORD=\n"
             f"{self.env_prefix}_API_KEY=\n"
+            f"{self.env_prefix}_ALLOW_WRITES={'true' if self.allow_writes else 'false'}\n"
+            f"{self.env_prefix}_ALLOWED_METHODS={','.join(sorted(self.allowed_methods))}\n"
+            f"{self.env_prefix}_ALLOWED_TAGS=\n"
+            f"{self.env_prefix}_ALLOWED_OPERATIONS=\n"
+            f"{self.env_prefix}_DENIED_OPERATIONS=\n"
         )
 
-        # Write README
-        readme = self._generate_readme(summary, endpoints)
+        documented_endpoints = endpoints[: self.max_documented_tools]
         readme_file = output_path / "README.md"
-        readme_file.write_text(readme)
+        readme_file.write_text(self._generate_readme(summary, endpoints, documented_endpoints))
 
-        # Generate agent-facing SKILL.md
-        skill_gen = SkillGenerator(self.analyzer, server_name=self.server_name)
-        skill_file = skill_gen.generate(endpoints, output_path)
+        skill_file = output_path / "SKILL.md"
+        SkillGenerator(self.analyzer, server_name=self.server_name).generate(
+            documented_endpoints,
+            output_path,
+        )
+
+        manifest = {
+            "generator": "mcp-anything",
+            "spec_source": self.analyzer.spec_source,
+            "spec_sha256": hashlib.sha256(
+                Path(self.analyzer.spec_source).read_bytes()
+                if Path(self.analyzer.spec_source).exists()
+                else self.analyzer.spec_source.encode()
+            ).hexdigest(),
+            "server_name": self.server_name,
+            "endpoint_count": len(endpoints),
+            "source_endpoint_count": len(all_endpoints),
+            "allow_writes": self.allow_writes,
+            "allowed_methods": sorted(self.allowed_methods),
+            "env_prefix": self.env_prefix,
+            "allowed_tags": sorted(self.allowed_tags),
+            "allowed_operations": sorted(self.allowed_operations),
+            "denied_operations": sorted(self.denied_operations),
+        }
+        manifest_file = output_path / "generation_manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2))
+
 
         return {
             "server_file": str(server_file),
+            "runtime_file": str(runtime_file),
             "config_file": str(config_file),
             "inventory_file": str(inventory_file),
             "env_file": str(env_file),
             "readme_file": str(readme_file),
             "skill_file": str(skill_file),
+            "manifest_file": str(manifest_file),
             "tool_count": len(endpoints),
+            "source_tool_count": len(all_endpoints),
             "server_name": self.server_name,
         }
 
-    def _generate_tool(self, ep: EndpointInfo) -> str:
-        """Generate a single MCP tool function."""
-        func_name = _sanitize_name(ep.operation_id) or _sanitize_name(f"{ep.method}_{ep.path}")
+    def generate_profiles(
+        self,
+        profiles: dict[str, dict],
+        output_root: str | Path,
+    ) -> dict[str, dict]:
+        """Generate independently scoped servers from one analyzed API."""
+        results = {}
+        root = Path(output_root)
+        for profile_name, options in profiles.items():
+            options = dict(options)
+            server_name = options.pop("server_name", f"{self.server_name}-{profile_name}")
+            env_prefix = options.pop(
+                "env_prefix",
+                f"{self.env_prefix}_{_sanitize_name(profile_name).upper()}",
+            )
+            profile = MCPServerGenerator(
+                self.analyzer,
+                server_name=server_name,
+                env_prefix=env_prefix,
+                allow_writes=options.pop("allow_writes", False),
+                allowed_tags=options.pop("allowed_tags", set()),
+                allowed_operations=options.pop("allowed_operations", set()),
+                denied_operations=options.pop("denied_operations", set()),
+                allowed_methods=options.pop("allowed_methods", set()),
+                max_documented_tools=options.pop(
+                    "max_documented_tools", self.max_documented_tools
+                ),
+            )
+            if options:
+                unknown = ", ".join(sorted(options))
+                raise TypeError(f"Unknown profile options: {unknown}")
+            results[profile_name] = profile.generate(root / profile_name)
+        return results
 
-        # Parameter signature
-        params = _build_param_signature(ep)
-
-        # Docstring
-        summary = ep.summary or f"{ep.method} {ep.path}"
-        description = ep.description or ""
-
-        # Param docs
-        param_docs = []
-        for p in ep.parameters:
-            loc = p.location
-            req = "required" if p.required else "optional"
-            desc = p.description or f"{p.name} ({loc}, {req})"
-            param_docs.append(f"        {_sanitize_name(p.name)}: {desc}")
-        if ep.request_body:
-            param_docs.append("        body: Request body as a dict")
-
-        param_doc_str = "\n".join(param_docs)
-
-        # Body - build the HTTP request
-        body_lines = []
-
-        # URL construction
-        path_templated = _build_url_template(ep.path, ep.parameters)
-        body_lines.append(f'    path = f"{path_templated}"')
-
-        # Query params
-        body_lines.append(_build_query_params(ep))
-
-        # Request body
-        if ep.request_body:
-            body_lines.append("    request_body = body if body else None")
-        else:
-            body_lines.append("    request_body = None")
-
-        # Make the request
-        body_lines.append(
-            f'    return _request("{ep.method}", path, '
-            f"params=query_params, body=request_body)"
+    def _generate_tool(self, endpoint: EndpointInfo) -> str:
+        bindings, body_name = _parameter_bindings(endpoint)
+        func_name = _sanitize_name(endpoint.operation_id) or _sanitize_name(
+            f"{endpoint.method}_{endpoint.path}"
         )
+        params = _build_param_signature(endpoint)
+        summary = (endpoint.summary or endpoint.description or f"{endpoint.method} {endpoint.path}")
+        summary = summary.replace('"""', "'''").replace("\n", " ")[:500]
+        path_template = _build_url_template(endpoint.path, bindings)
+        query_code = _build_parameter_map(bindings, "query", "query_params")
+        header_code = _build_parameter_map(bindings, "header", "header_params")
+        cookie_code = _build_parameter_map(bindings, "cookie", "cookie_params")
+        body_expression = f"{body_name} if {body_name} else None" if body_name else "None"
+        content_type = endpoint.request_body.get("content_type", "application/json") if endpoint.request_body else "application/json"
 
-        body = "\n".join(body_lines)
-
-        return TOOL_TEMPLATE.format(
-            func_name=func_name,
-            params=params,
-            summary=summary,
-            description=description,
-            param_docs=param_doc_str,
-            body=body,
-        )
+        return f'''@mcp.tool()
+def {func_name}({params}) -> dict:
+    """{summary}"""
+    path = f"{path_template}"
+{query_code}
+{header_code}
+{cookie_code}
+    request_body = {body_expression}
+    return _request(
+        {json.dumps(endpoint.method)},
+        path,
+        params=query_params,
+        headers=header_params,
+        cookies=cookie_params,
+        body=request_body,
+        content_type={json.dumps(content_type)},
+        operation_id={json.dumps(endpoint.operation_id)},
+        tags={json.dumps(endpoint.tags or [])},
+    )
+'''
 
     def _generate_mcp_config(self, server_file: str) -> dict:
-        """Generate MCP client config block."""
         return {
             "mcpServers": {
                 self.server_name: {
                     "command": "python3",
                     "args": [server_file],
                     "env": {
-                        f"{self.env_prefix}_BASE_URL": f"${{{self.env_prefix}_BASE_URL}}",
-                        f"{self.env_prefix}_API_KEY": f"${{{self.env_prefix}_API_KEY}}",
+                        f"{self.env_prefix}_BASE_URL": self.analyzer.base_url,
+                        f"{self.env_prefix}_ALLOW_WRITES": "true"
+                        if self.allow_writes
+                        else "false",
+                        f"{self.env_prefix}_ALLOWED_METHODS": ",".join(
+                            sorted(self.allowed_methods)
+                        ),
+                        f"{self.env_prefix}_ALLOWED_TAGS": ",".join(
+                            sorted(self.allowed_tags)
+                        ),
+                        f"{self.env_prefix}_ALLOWED_OPERATIONS": ",".join(
+                            sorted(self.allowed_operations)
+                        ),
+                        f"{self.env_prefix}_DENIED_OPERATIONS": ",".join(
+                            sorted(self.denied_operations)
+                        ),
                     },
                 }
             }
         }
 
     def _generate_inventory(self, endpoints: list[EndpointInfo]) -> list[dict]:
-        """Generate a JSON inventory of all tools."""
         inventory = []
-        for ep in endpoints:
-            func_name = _sanitize_name(ep.operation_id) or _sanitize_name(f"{ep.method}_{ep.path}")
-            inventory.append({
-                "name": func_name,
-                "operation_id": ep.operation_id,
-                "method": ep.method,
-                "path": ep.path,
-                "summary": ep.summary,
-                "tags": ep.tags,
-                "parameters": [
-                    {
-                        "name": _sanitize_name(p.name),
-                        "original_name": p.name,
-                        "location": p.location,
-                        "required": p.required,
-                        "type": _schema_to_python_type(p.schema),
-                    }
-                    for p in ep.parameters
-                ],
-                "has_request_body": ep.request_body is not None,
-            })
+        for endpoint in endpoints:
+            bindings, _ = _parameter_bindings(endpoint)
+            inventory.append(
+                {
+                    "name": _sanitize_name(endpoint.operation_id),
+                    "operation_id": endpoint.operation_id,
+                    "method": endpoint.method,
+                    "path": endpoint.path,
+                    "summary": endpoint.summary,
+                    "tags": endpoint.tags,
+                    "parameters": [
+                        {
+                            "name": local_name,
+                            "original_name": parameter.name,
+                            "location": parameter.location,
+                            "required": parameter.required,
+                            "type": _schema_to_python_type(parameter.schema),
+                        }
+                        for parameter, local_name in bindings
+                    ],
+                    "has_request_body": endpoint.request_body is not None,
+                    "content_type": endpoint.request_body.get("content_type")
+                    if endpoint.request_body
+                    else None,
+                    "request_body_schema": endpoint.request_body.get("schema")
+                    if endpoint.request_body
+                    else None,
+                }
+            )
         return inventory
 
-    def _generate_readme(self, summary: dict, endpoints: list[EndpointInfo]) -> str:
-        """Generate a README for the generated MCP server."""
-        tag_groups = {}
-        for ep in endpoints:
-            for tag in ep.tags or ["untagged"]:
-                tag_groups.setdefault(tag, []).append(ep)
-
-        tools_section = ""
-        for tag, eps in sorted(tag_groups.items()):
-            tools_section += f"\n### {tag}\n\n"
-            tools_section += "| Tool | Method | Path | Description |\n"
-            tools_section += "|------|--------|------|-------------|\n"
-            for ep in eps:
-                name = _sanitize_name(ep.operation_id)
-                desc = ep.summary or ep.description or "-"
-                tools_section += f"| `{name}` | {ep.method} | `{ep.path}` | {desc[:80]} |\n"
-
-        return textwrap.dedent(f"""\
-        # {self.server_name} MCP Server
-
-        Auto-generated by **MCP-Anything** from OpenAPI spec.
-
-        **API:** {summary['title']} v{summary['version']}  
-        **Base URL:** `{summary['base_url']}`  
-        **Tools:** {summary['endpoint_count']} endpoints  
-
-        ## Setup
-
-        1. Copy `.env.example` to `.env` and fill in your credentials:
-           ```bash
-           cp .env.example .env
-           ```
-
-        2. Add to your MCP client config (`mcp_config.json`):
-           ```json
-           {json.dumps(self._generate_mcp_config("server.py"), indent=2)}
-           ```
-
-        3. Install dependencies:
-           ```bash
-           pip install fastmcp httpx
-           ```
-
-        ## Available Tools
-        {tools_section}
-        """)
+    def _generate_readme(
+        self,
+        summary: dict,
+        endpoints: list[EndpointInfo],
+        documented_endpoints: list[EndpointInfo],
+    ) -> str:
+        tag_counts: dict[str, int] = {}
+        for endpoint in endpoints:
+            for tag in endpoint.tags or ["untagged"]:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        lines = [
+            f"# {self.server_name} MCP Server",
+            "",
+            "Generated by **MCP-Anything**.",
+            "",
+            f"**API:** {summary['title']} v{summary['version']}",
+            f"**Base URL:** `{summary['base_url']}`",
+            f"**Exposed tools:** {len(endpoints)}",
+            f"**Writes enabled at generation:** `{self.allow_writes}`",
+            "",
+            "## Configuration",
+            "",
+            f"Set `{self.env_prefix}_EMAIL` and `{self.env_prefix}_PASSWORD` in the process environment, or use `{self.env_prefix}_API_KEY`.",
+            "Writes and capabilities are disabled by default at runtime.",
+            "",
+            "## Tool groups",
+            "",
+        ]
+        lines.extend(f"- **{tag}**: {count}" for tag, count in sorted(tag_counts.items()))
+        if documented_endpoints:
+            lines.extend(["", "## Representative tools", "", "| Tool | Method | Path |", "|---|---|---|"])
+            lines.extend(
+                f"| `{_sanitize_name(endpoint.operation_id)}` | {endpoint.method} | `{endpoint.path}` |"
+                for endpoint in documented_endpoints
+            )
+        if len(documented_endpoints) < len(endpoints):
+            lines.extend(["", f"Only the first {len(documented_endpoints)} tools are listed; see `tools_inventory.json` for the complete inventory."])
+        return textwrap.dedent("\n".join(lines) + "\n")

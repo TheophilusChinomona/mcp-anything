@@ -182,23 +182,41 @@ class OpenAPIAnalyzer:
             return self._simplify_schema(content["application/json"].get("schema", {}))
         return None
 
-    def _simplify_schema(self, schema: dict) -> dict:
-        """Flatten nested $ref and keep only essential JSON Schema fields."""
-        if not schema:
+    def _simplify_schema(self, schema: dict, _seen: set | None = None) -> dict:
+        """Flatten nested $ref and keep only essential JSON Schema fields.
+
+        Uses object-id tracking to handle circular $ref references.
+        """
+        if not schema or not isinstance(schema, dict):
             return {}
-        keep = {"type", "properties", "items", "enum", "required", "format",
-                "description", "default", "minimum", "maximum", "minLength",
-                "maxLength", "pattern", "anyOf", "oneOf", "allOf"}
-        result = {}
-        for k, v in schema.items():
-            if k in keep:
-                if k == "properties" and isinstance(v, dict):
-                    result[k] = {pk: self._simplify_schema(pv) for pk, pv in v.items()}
-                elif k == "items" and isinstance(v, dict):
-                    result[k] = self._simplify_schema(v)
-                else:
-                    result[k] = copy.deepcopy(v)
-        return result
+        if _seen is None:
+            _seen = set()
+        obj_id = id(schema)
+        if obj_id in _seen:
+            # Circular reference — emit a type-only stub
+            t = schema.get("type", "object")
+            return {"type": t, "$circular": True}
+        _seen.add(obj_id)
+        try:
+            keep = {"type", "properties", "items", "enum", "required", "format",
+                    "description", "default", "minimum", "maximum", "minLength",
+                    "maxLength", "pattern", "anyOf", "oneOf", "allOf"}
+            result = {}
+            for k, v in schema.items():
+                if k in keep:
+                    if k == "properties" and isinstance(v, dict):
+                        result[k] = {pk: self._simplify_schema(pv, _seen.copy())
+                                     for pk, pv in v.items()}
+                    elif k == "items" and isinstance(v, dict):
+                        result[k] = self._simplify_schema(v, _seen.copy())
+                    elif k in ("anyOf", "oneOf", "allOf") and isinstance(v, list):
+                        result[k] = [self._simplify_schema(item, _seen.copy())
+                                     for item in v]
+                    else:
+                        result[k] = copy.deepcopy(v)
+            return result
+        finally:
+            _seen.discard(obj_id)
 
     def get_security_schemes(self) -> dict:
         """Return defined security schemes from the spec."""

@@ -64,7 +64,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         assert Path(result["server_file"]).exists()
@@ -78,7 +78,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -89,7 +89,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -101,12 +101,12 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
         assert "from fastmcp import FastMCP" in source
-        assert "import httpx" in source
+        assert "from mcp_runtime import" in source
         assert "import os" in source
 
     def test_server_has_env_config(self, petstore_spec_file, output_dir):
@@ -114,7 +114,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -126,7 +126,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -137,7 +137,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         config = json.loads(Path(result["config_file"]).read_text())
@@ -147,13 +147,16 @@ class TestMCPServerGenerator:
         assert "command" in server_config
         assert "args" in server_config
         assert "env" in server_config
+        assert server_config["env"]["TEST_PETS_ALLOW_WRITES"] == "true"
+        assert "TEST_PETS_ALLOWED_TAGS" in server_config["env"]
+        assert "TEST_PETS_DENIED_OPERATIONS" in server_config["env"]
 
     def test_inventory_json_valid(self, petstore_spec_file, output_dir):
         """Generated tools_inventory.json is valid and has all tools."""
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         inventory = json.loads(Path(result["inventory_file"]).read_text())
@@ -168,7 +171,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         assert result["tool_count"] == 5
@@ -178,7 +181,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets", env_prefix="MY_API")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", env_prefix="MY_API", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_bytes().decode('utf-8')
@@ -190,7 +193,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -202,7 +205,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()
@@ -214,7 +217,7 @@ class TestMCPServerGenerator:
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
         
-        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
         
         source = Path(result["server_file"]).read_text()

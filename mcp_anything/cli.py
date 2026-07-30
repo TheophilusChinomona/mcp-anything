@@ -38,6 +38,10 @@ def generate_from_spec(
     agents_model: str = "anthropic/claude-sonnet-4",
     agents_provider: str = "openrouter",
     include_tests: bool = False,
+    allow_writes: bool = False,
+    allowed_tags: set[str] | None = None,
+    allowed_operations: set[str] | None = None,
+    denied_operations: set[str] | None = None,
 ):
     """Generate MCP server from an OpenAPI spec."""
     print(f"📋 Loading OpenAPI spec: {spec_source[:80]}...")
@@ -151,7 +155,15 @@ def generate_from_spec(
 
     # Standard generation
     print(f"\n🔨 Generating MCP server...")
-    generator = MCPServerGenerator(analyzer, server_name=server_name, env_prefix=env_prefix)
+    generator = MCPServerGenerator(
+        analyzer,
+        server_name=server_name,
+        env_prefix=env_prefix,
+        allow_writes=allow_writes,
+        allowed_tags=allowed_tags,
+        allowed_operations=allowed_operations,
+        denied_operations=denied_operations,
+    )
     result = generator.generate(output_dir)
 
     print(f"\n✅ Generated MCP server!")
@@ -223,6 +235,10 @@ def parse_args(args: list[str]) -> dict:
         "agents_model": "anthropic/claude-sonnet-4",
         "agents_provider": "openrouter",
         "include_tests": False,
+        "allow_writes": False,
+        "allowed_tags": set(),
+        "allowed_operations": set(),
+        "denied_operations": set(),
         "positional": [],
     }
 
@@ -261,6 +277,14 @@ def parse_args(args: list[str]) -> dict:
             if config["llm"] is None:
                 config["llm"] = {}
             config["llm"]["api_key"] = args[i + 1]; i += 2
+        elif arg == "--allow-writes":
+            config["allow_writes"] = True; i += 1
+        elif arg == "--tags" and i + 1 < len(args):
+            config["allowed_tags"] = {value.strip() for value in args[i + 1].split(",") if value.strip()}; i += 2
+        elif arg == "--operations" and i + 1 < len(args):
+            config["allowed_operations"] = {value.strip() for value in args[i + 1].split(",") if value.strip()}; i += 2
+        elif arg == "--deny-operations" and i + 1 < len(args):
+            config["denied_operations"] = {value.strip() for value in args[i + 1].split(",") if value.strip()}; i += 2
         elif not arg.startswith("--"):
             config["positional"].append(arg); i += 1
         else:
@@ -289,6 +313,10 @@ def main():
         print("  --output DIR             Output directory (default: ./output)")
         print("  --name NAME              Server name")
         print("  --env-prefix PREFIX      Environment variable prefix")
+        print("  --allow-writes           Include state-changing tools")
+        print("  --tags TAG1,TAG2         Restrict tools to tags")
+        print("  --operations OP1,OP2     Restrict tools to operation IDs")
+        print("  --deny-operations OP1    Exclude operation IDs")
         print("  --claude-model MODEL     Claude model (default: claude-sonnet-4-20250514)")
         print("  --agents-model MODEL     Agents model (default: anthropic/claude-sonnet-4)")
         print("  --agents-provider PROV   Agents provider (default: openrouter)")
@@ -328,6 +356,10 @@ def main():
             agents_model=config["agents_model"],
             agents_provider=config["agents_provider"],
             include_tests=config["include_tests"],
+            allow_writes=config["allow_writes"],
+            allowed_tags=config["allowed_tags"],
+            allowed_operations=config["allowed_operations"],
+            denied_operations=config["denied_operations"],
         )
 
     elif command == "discover":
