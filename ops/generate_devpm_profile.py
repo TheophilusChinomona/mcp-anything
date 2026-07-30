@@ -124,6 +124,7 @@ def _build_read_profile(spec: Path, output: Path) -> dict:
         server_name=SERVER_NAME,
         env_prefix=ENV_PREFIX,
         allow_writes=False,
+        allowed_methods={"GET"},
         allowed_tags=DEVPM_ALLOWED_TAGS,
     )
     result = generator.generate(str(output))
