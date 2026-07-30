@@ -293,9 +293,9 @@ class MCPServerGenerator:
             f"{self.env_prefix}_API_KEY=\n"
             f"{self.env_prefix}_ALLOW_WRITES={'true' if self.allow_writes else 'false'}\n"
             f"{self.env_prefix}_ALLOWED_METHODS={','.join(sorted(self.allowed_methods))}\n"
-            f"{self.env_prefix}_ALLOWED_TAGS=\n"
-            f"{self.env_prefix}_ALLOWED_OPERATIONS=\n"
-            f"{self.env_prefix}_DENIED_OPERATIONS=\n"
+            f"{self.env_prefix}_ALLOWED_TAGS={','.join(sorted(self.allowed_tags)) if self.allowed_tags else ''}\n"
+            f"{self.env_prefix}_ALLOWED_OPERATIONS={','.join(sorted(self.allowed_operations)) if self.allowed_operations else '# set from generation_manifest.json allowed_operations'}\n"
+            f"{self.env_prefix}_DENIED_OPERATIONS={','.join(sorted(self.denied_operations)) if self.denied_operations else '# set from generation_manifest.json denied_operations'}\n"
         )
 
         documented_endpoints = endpoints[: self.max_documented_tools]
