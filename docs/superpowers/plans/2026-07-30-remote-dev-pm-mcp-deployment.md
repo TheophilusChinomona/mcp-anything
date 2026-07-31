@@ -25,18 +25,28 @@
 
 Use these fixed deployment paths and names so the client configuration, wrapper, and verification commands agree:
 
-| Item | Value |
-|---|---|
-| Tailscale/SSH host alias | `speccon-mcp` |
-| Remote Unix user | `mcp-speccon` |
-| Remote artifact root | `/opt/mcp-anything/output/speccon` |
-| Remote Python | `/opt/mcp-anything/venv/bin/python` |
-| Remote secret file | `/etc/mcp-anything/speccon-devpm.env` |
-| Remote MCP wrapper | `/usr/local/bin/speccon-devpm-mcp` |
-| Generated server | `/opt/mcp-anything/output/speccon/profiles/devpm-read/speccon_crm_devpm_read_server.py` |
-| MCP profile | `speccon-crm-devpm-read` |
-| Expected tool count | `139` |
-| Expected methods | `GET` only |
+| Item | Read value | Write value |
+|---|---|---|
+| Generated server | `.../profiles/devpm-read/speccon_crm_devpm_read_server.py` | `.../profiles/devpm-write/speccon_crm_devpm_write_server.py` |
+| MCP profile | `speccon-crm-devpm-read` | `speccon-crm-devpm-write` |
+| Expected tool count | `139` | `161` |
+| Expected methods | `GET` only | `GET, POST, PUT, PATCH` |
+| allow_writes | false | true |
+
+---
+
+## Write-profile rollout
+
+Before changing the active profile, archive the current read-only profile and manifest:
+
+```bash
+archive=/tmp/speccon-devpm-read-rollback-$(date +%Y%m%d%H%M%S).tar.gz
+tar --sort=name --owner=0 --group=0 --numeric-owner \
+  -czf "$archive" \
+  -C /home/theo-zo/dev/mcp-anything/output/speccon/profiles devpm-read
+```
+
+Record the archive path, old manifest SHA-256, and current process identity. Do not archive credentials.
 
 ---
 
@@ -121,12 +131,14 @@ SPECCON_DEVPM_BASE_URL=https://prod-erp-backend.azurewebsites.net
 SPECCON_DEVPM_EMAIL=
 SPECCON_DEVPM_PASSWORD=
 SPECCON_DEVPM_API_KEY=
-SPECCON_DEVPM_ALLOW_WRITES=false
-SPECCON_DEVPM_ALLOWED_METHODS=GET
+SPECCON_DEVPM_ALLOW_WRITES=true
+SPECCON_DEVPM_ALLOWED_METHODS=GET,POST,PUT,PATCH
 SPECCON_DEVPM_ALLOWED_TAGS=DevPmActivity,DevPmAudit,DevPmBugClaim,DevPmBugTriage,DevPmDashboard,DevPmDocumentImports,DevPmEpics,DevPmEvents,DevPmLabels,DevPmLearners,DevPmMetrics,DevPmNotifications,DevPmPhases,DevPmPoker,DevPmProjectPhases,DevPmProjects,DevPmQuestions,DevPmReleaseNotes,DevPmReports,DevPmSettings,DevPmSprints,DevPmSquads,DevPmSubFeatures,DevPmTeam,DevPmTicketSubtasks,DevPmTickets,DevPmUserPreferences
-SPECCON_DEVPM_ALLOWED_OPERATIONS=
-SPECCON_DEVPM_DENIED_OPERATIONS=
+SPECCON_DEVPM_ALLOWED_OPERATIONS=<generator-emitted sorted union of 139 GET operation IDs and 22 approved write operation IDs>
+SPECCON_DEVPM_DENIED_OPERATIONS=delete_api_devpm_DevPmTickets_Delete,delete_api_devpm_DevPmTickets_DeleteSubtask,delete_api_devpm_DevPmTickets_DeleteLink,delete_api_devpm_DevPmTickets_DeleteAttachment,delete_api_devpm_DevPmTickets_Unsubscribe,delete_api_devpm_DevPmTicketSubtasks_Delete
 ```
+
+> **Note:** The `ALLOWED_OPERATIONS` value must be the complete comma-separated sorted union of operation IDs emitted by profile generator output, not the description text shown above. Substitute the actual generated list before deploying.
 
 Set ownership and permissions:
 
@@ -444,6 +456,24 @@ Verify:
 4. The endpoint is not reachable from the public internet.
 5. `SPECCON_DEVPM_ALLOW_WRITES=false` remains enforced.
 6. Removing the Tailscale Serve configuration immediately removes access.
+
+## Rollback to read-only profile
+
+If the write rollout fails verification, the user requests rollback, or an incident requires restoring the read-only surface:
+
+1. Stop the write-capable MCP process.
+2. Extract the archived read-only profile:
+   ```bash
+   cd /opt/mcp-anything/output/speccon/profiles
+   sudo tar -xzf /tmp/speccon-devpm-read-rollback-*.tar.gz
+   ```
+3. Restore the env file policy:
+   ```dotenv
+   SPECCON_DEVPM_ALLOW_WRITES=false
+   SPECCON_DEVPM_ALLOWED_METHODS=GET
+   ```
+4. Restart the MCP process.
+5. Reinitialize the client and verify the 139-tool GET-only inventory.
 
 ---
 

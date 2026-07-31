@@ -240,3 +240,64 @@ def test_http_client_sends_header_and_cookie_parameters():
 
     assert captured[0].headers["X-Tenant"] == "tenant-1"
     assert "session=cookie-1" in captured[0].headers["Cookie"]
+
+
+class TestCapabilityPolicyFilters:
+    """Combined policy filter tests for CapabilityPolicy.check()."""
+
+    def test_denied_operations_blocked_before_allowlist(self):
+        policy = CapabilityPolicy(
+            allowed_operations={"create_ticket", "update_ticket"},
+            denied_operations={"update_ticket"},
+            allow_writes=True,
+        )
+        policy.check("POST", "create_ticket")  # should pass
+        with pytest.raises(CapabilityDenied):
+            policy.check("POST", "update_ticket")  # denied despite being in allowed
+
+    def test_operation_outside_allowlist_denied(self):
+        policy = CapabilityPolicy(
+            allowed_operations={"list_projects"},
+        )
+        with pytest.raises(CapabilityDenied):
+            policy.check("GET", "list_tickets")
+        policy.check("GET", "list_projects")  # allowed
+
+    def test_method_outside_allowlist_denied(self):
+        policy = CapabilityPolicy(
+            allowed_methods={"GET", "POST"},
+            allow_writes=True,
+        )
+        policy.check("GET", "read_project")
+        policy.check("POST", "create_ticket")
+        with pytest.raises(CapabilityDenied):
+            policy.check("PUT", "update_ticket")
+
+    def test_empty_allowlist_allows_all_methods(self):
+        policy = CapabilityPolicy(allow_writes=True)
+        # No enforced method allowlist — all methods pass
+        policy.check("GET", "list")
+        policy.check("POST", "create")
+        policy.check("PUT", "update")
+        policy.check("DELETE", "delete")
+
+    def test_policy_from_env_parses_all_fields(self, monkeypatch):
+        monkeypatch.setenv("TEST_MCP_ALLOWED_METHODS", "GET,POST")
+        monkeypatch.setenv("TEST_MCP_ALLOWED_OPERATIONS", "list_tickets,create_ticket")
+        monkeypatch.setenv("TEST_MCP_DENIED_OPERATIONS", "delete_ticket")
+        monkeypatch.setenv("TEST_MCP_ALLOW_WRITES", "true")
+        policy = CapabilityPolicy.from_env("TEST_MCP")
+        assert policy.allowed_methods == {"GET", "POST"}
+        assert policy.allowed_operations == {"list_tickets", "create_ticket"}
+        assert policy.denied_operations == {"delete_ticket"}
+        assert policy.allow_writes is True
+
+    def test_combined_filter_denied_takes_priority(self):
+        policy = CapabilityPolicy(
+            allowed_operations={"list_pets", "delete_pet"},
+            denied_operations={"delete_pet"},
+        )
+        policy.check("GET", "list_pets")  # allowed
+        with pytest.raises(CapabilityDenied) as exc:
+            policy.check("DELETE", "delete_pet")
+        assert "denied" in str(exc.value).lower()

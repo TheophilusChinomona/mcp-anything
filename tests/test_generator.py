@@ -216,10 +216,79 @@ class TestMCPServerGenerator:
         """Enum parameters get Literal types in tool signatures."""
         analyzer = OpenAPIAnalyzer(petstore_spec_file)
         analyzer.load()
-        
+
         generator = MCPServerGenerator(analyzer, server_name="test-pets", allow_writes=True)
         result = generator.generate(output_dir)
-        
+
         source = Path(result["server_file"]).read_text()
         assert "Literal" in source
         assert "'available'" in source
+
+    def test_allowed_operations_filters_out_other_endpoints(self, petstore_spec_file, output_dir):
+        analyzer = OpenAPIAnalyzer(petstore_spec_file).load()
+        generator = MCPServerGenerator(
+            analyzer,
+            server_name="test-pets",
+            allowed_operations={"listPets"},
+            allow_writes=True,
+        )
+        result = generator.generate(output_dir)
+        assert result["tool_count"] == 1
+        inventory = json.loads(Path(result["inventory_file"]).read_text())
+        assert [t["operation_id"] for t in inventory] == ["listPets"]
+
+    def test_denied_operations_excludes_specific_endpoints(self, petstore_spec_file, output_dir):
+        analyzer = OpenAPIAnalyzer(petstore_spec_file).load()
+        generator = MCPServerGenerator(
+            analyzer,
+            server_name="test-pets",
+            denied_operations={"deletePet"},
+            allow_writes=True,
+        )
+        result = generator.generate(output_dir)
+        inventory = json.loads(Path(result["inventory_file"]).read_text())
+        assert all(t["operation_id"] != "deletePet" for t in inventory)
+        assert len(inventory) == 4  # 5 total - 1 denied = 4
+
+    def test_allowed_methods_and_operations_together(self, petstore_spec_file, output_dir):
+        analyzer = OpenAPIAnalyzer(petstore_spec_file).load()
+        generator = MCPServerGenerator(
+            analyzer,
+            server_name="test-pets",
+            allowed_methods={"GET"},
+            allowed_operations={"listPets", "getPet"},
+        )
+        result = generator.generate(output_dir)
+        inventory = json.loads(Path(result["inventory_file"]).read_text())
+        assert len(inventory) == 2
+        assert {t["method"] for t in inventory} == {"GET"}
+        assert {t["operation_id"] for t in inventory} == {"listPets", "getPet"}
+
+    def test_env_example_contains_all_policy_variables(self, petstore_spec_file, output_dir):
+        analyzer = OpenAPIAnalyzer(petstore_spec_file).load()
+        generator = MCPServerGenerator(analyzer, server_name="test-pets")
+        result = generator.generate(output_dir)
+        env_content = Path(result["env_file"]).read_text()
+        assert f"{generator.env_prefix}_ALLOW_WRITES" in env_content
+        assert f"{generator.env_prefix}_ALLOWED_METHODS" in env_content
+        assert f"{generator.env_prefix}_ALLOWED_TAGS" in env_content
+        assert f"{generator.env_prefix}_ALLOWED_OPERATIONS" in env_content
+        assert f"{generator.env_prefix}_DENIED_OPERATIONS" in env_content
+
+    def test_manifest_contains_all_policy_fields(self, petstore_spec_file, output_dir):
+        analyzer = OpenAPIAnalyzer(petstore_spec_file).load()
+        generator = MCPServerGenerator(
+            analyzer,
+            server_name="test-pets",
+            allowed_operations={"listPets", "createPet"},
+            denied_operations={"deletePet"},
+            allowed_methods={"GET", "POST"},
+        )
+        result = generator.generate(output_dir)
+        manifest = json.loads(Path(result["manifest_file"]).read_text())
+        assert "allowed_methods" in manifest
+        assert "allowed_operations" in manifest
+        assert "denied_operations" in manifest
+        assert set(manifest["allowed_operations"]) == {"listPets", "createPet"}
+        assert manifest["denied_operations"] == ["deletePet"]
+        assert set(manifest["allowed_methods"]) == {"GET", "POST"}

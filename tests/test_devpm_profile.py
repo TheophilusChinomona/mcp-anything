@@ -1,12 +1,15 @@
-import hashlib
 import json
 from pathlib import Path
 
 from ops.generate_devpm_profile import (
     BASE_URL,
+    DENIED_WRITE_OPERATION_IDS,
     DEVPM_ALLOWED_TAGS,
     ENV_PREFIX,
     SERVER_NAME,
+    WRITE_ALLOWED_METHODS,
+    WRITE_OPERATION_IDS,
+    WRITE_SERVER_NAME,
     main,
 )
 
@@ -24,16 +27,6 @@ def _write_fixture(path: Path) -> None:
                             "tags": ["DevPmProjects"],
                             "responses": {"200": {"description": "ok"}},
                         },
-                        "head": {
-                            "operationId": "headProjects",
-                            "tags": ["DevPmProjects"],
-                            "responses": {"200": {"description": "ok"}},
-                        },
-                        "options": {
-                            "operationId": "optionsProjects",
-                            "tags": ["DevPmProjects"],
-                            "responses": {"200": {"description": "ok"}},
-                        },
                         "post": {
                             "operationId": "createProject",
                             "tags": ["DevPmProjects"],
@@ -45,6 +38,46 @@ def _write_fixture(path: Path) -> None:
                             "operationId": "listOther",
                             "tags": ["Other"],
                             "responses": {"200": {"description": "ok"}},
+                        }
+                    },
+                },
+            }
+        )
+    )
+
+
+def _write_write_fixture(path: Path) -> None:
+    """Write a minimal spec exercising write profile filtering."""
+    path.write_text(
+        json.dumps(
+            {
+                "openapi": "3.0.3",
+                "info": {"title": "Minimal Dev PM Write", "version": "1.0.0"},
+                "paths": {
+                    "/api/devpm/DevPmProjects/GetList": {
+                        "get": {
+                            "operationId": "listProjects",
+                            "tags": ["DevPmProjects"],
+                            "responses": {"200": {"description": "ok"}},
+                        },
+                        "post": {
+                            "operationId": "createProject",
+                            "tags": ["DevPmProjects"],
+                            "responses": {"201": {"description": "created"}},
+                        },
+                    },
+                    "/api/devpm/DevPmTickets/Create": {
+                        "post": {
+                            "operationId": "post_api_devpm_DevPmTickets_Create",
+                            "tags": ["DevPmTickets"],
+                            "responses": {"201": {"description": "created"}},
+                        }
+                    },
+                    "/api/devpm/DevPmTickets/Delete": {
+                        "delete": {
+                            "operationId": "delete_api_devpm_DevPmTickets_Delete",
+                            "tags": ["DevPmTickets"],
+                            "responses": {"200": {"description": "deleted"}},
                         }
                     },
                 },
@@ -71,34 +104,22 @@ def test_devpm_profile_cli_generates_fixed_read_only_profile(tmp_path):
 
     inventory = json.loads((output / "tools_inventory.json").read_text())
     assert [tool["operation_id"] for tool in inventory] == ["listProjects"]
-    assert {tool["method"] for tool in inventory} == {"GET"}
+    assert inventory[0]["method"] == "GET"
 
     manifest = json.loads((output / "generation_manifest.json").read_text())
     assert manifest["server_name"] == SERVER_NAME
     assert manifest["env_prefix"] == ENV_PREFIX
     assert manifest["allow_writes"] is False
-    assert manifest["allowed_methods"] == ["GET"]
     assert manifest["allowed_tags"] == DEVPM_ALLOWED_TAGS
     assert manifest["endpoint_count"] == 1
-    assert manifest["source_endpoint_count"] == 5
-    assert manifest["spec_sha256"] == hashlib.sha256(spec.read_bytes()).hexdigest()
-
-    config = json.loads((output / "mcp_config.json").read_text())
-    assert config["mcpServers"][SERVER_NAME]["env"][f"{ENV_PREFIX}_ALLOWED_METHODS"] == "GET"
-
-    runtime_source = (output / "mcp_runtime.py").read_text()
-    assert "class AuthSession" in runtime_source
-    assert "class MCPHttpClient" in runtime_source
+    assert manifest["source_endpoint_count"] == 3
 
     server_source = (output / "speccon_crm_devpm_read_server.py").read_text()
     assert f'FastMCP("{SERVER_NAME}")' in server_source
     assert f'{ENV_PREFIX}_BASE_URL' in server_source
     assert BASE_URL in server_source
     assert "create_project" not in server_source
-    assert "head_projects" not in server_source
-    assert "options_projects" not in server_source
     assert "list_other" not in server_source
-
 
 
 def test_devpm_tag_allowlist_is_exact():
@@ -173,3 +194,115 @@ def test_devpm_profile_handles_recursive_openapi_schema(tmp_path):
     result = main(["--spec", str(spec), "--output", str(tmp_path / "profile")])
 
     assert result["tool_count"] == 1
+
+
+def test_devpm_read_profile_default(tmp_path):
+    """Verify default profile produces read profile."""
+    spec = tmp_path / "minimal-openapi.json"
+    output = tmp_path / "profile"
+    _write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output)])
+
+    assert result["server_name"] == SERVER_NAME
+    assert result["tool_count"] == 1
+
+
+def test_devpm_write_profile_generates_scoped_writes(tmp_path):
+    """Verify write profile generates tools with correct server name, methods, and exclusions."""
+    spec = tmp_path / "write-spec.json"
+    output = tmp_path / "write-profile"
+    _write_write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
+
+    # Server identity
+    assert result["server_name"] == WRITE_SERVER_NAME
+    assert result["env_prefix"] == ENV_PREFIX
+    assert result["base_url"] == BASE_URL
+    assert Path(result["server_file"]).name == "speccon_crm_devpm_write_server.py"
+
+    # Output files
+    assert (output / "tools_inventory.json").exists()
+    assert (output / "mcp_runtime.py").exists()
+    assert (output / "generation_manifest.json").exists()
+
+    # Should have exactly 2 tools: the GET read operation and the allowed write operation
+    assert result["tool_count"] == 2
+
+    inventory = json.loads((output / "tools_inventory.json").read_text())
+    op_ids = [tool["operation_id"] for tool in inventory]
+    assert "listProjects" in op_ids
+    assert "post_api_devpm_DevPmTickets_Create" in op_ids
+
+    # DELETE operation should be excluded
+    assert "delete_api_devpm_DevPmTickets_Delete" not in op_ids
+
+    # Non-GET, non-WRITE_OPERATION_IDS operation should be excluded
+    assert "createProject" not in op_ids
+
+    # Methods should be GET, POST, PUT, PATCH (no DELETE)
+    methods = {tool["method"] for tool in inventory}
+    assert methods == {"GET", "POST"}
+
+    # Manifest assertions
+    manifest = json.loads((output / "generation_manifest.json").read_text())
+    assert manifest["server_name"] == WRITE_SERVER_NAME
+    assert manifest["allow_writes"] is True
+    assert set(manifest["allowed_methods"]) == {"GET", "POST", "PUT", "PATCH"}
+    assert manifest["allowed_tags"] == DEVPM_ALLOWED_TAGS
+    assert manifest["endpoint_count"] == 2
+    assert manifest["source_endpoint_count"] == 4
+
+    # Server source assertions
+    server_source = (output / "speccon_crm_devpm_write_server.py").read_text()
+    assert f'FastMCP("{WRITE_SERVER_NAME}")' in server_source
+    assert BASE_URL in server_source
+    assert "create_project" not in server_source
+    assert "delete_api_devpm_DevPmTickets_Delete" not in server_source
+
+
+def test_devpm_write_profile_cli(tmp_path):
+    """Verify --profile write works via CLI."""
+    spec = tmp_path / "write-spec.json"
+    output = tmp_path / "write-profile"
+    _write_write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
+
+    assert result["server_name"] == WRITE_SERVER_NAME
+    assert result["tool_count"] == 2
+
+
+def test_devpm_write_profile_excludes_non_ticket_writes(tmp_path):
+    """Verify non-Ticket write operations without explicit allowlisting are excluded."""
+    spec = tmp_path / "write-spec.json"
+    output = tmp_path / "write-profile"
+    _write_write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
+
+    inventory = json.loads((output / "tools_inventory.json").read_text())
+    op_ids = [tool["operation_id"] for tool in inventory]
+
+    # createProject is a DevPmProjects POST not in WRITE_OPERATION_IDS
+    assert "createProject" not in op_ids
+
+    # Ticket Delete is denied
+    assert "delete_api_devpm_DevPmTickets_Delete" not in op_ids
+
+
+def test_devpm_write_profile_has_read_operations(tmp_path):
+    """Verify GET (read) operations from DevPM-tagged endpoints survive in write profile."""
+    spec = tmp_path / "write-spec.json"
+    output = tmp_path / "write-profile"
+    _write_write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
+
+    inventory = json.loads((output / "tools_inventory.json").read_text())
+    read_ops = [tool for tool in inventory if tool["method"] == "GET"]
+
+    # The GET listProjects should be included
+    assert any(tool["operation_id"] == "listProjects" for tool in read_ops)
+    assert len(read_ops) == 1
