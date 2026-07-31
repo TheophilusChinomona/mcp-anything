@@ -10,7 +10,7 @@ MCP-Anything converts an OpenAPI 3.x document into a runnable [FastMCP](https://
 - **Tier 2 (website/API documentation discovery):** supported through Firecrawl.
 - **LLM enhancement:** optional OpenAI, Anthropic, Google, OpenRouter, Claude SDK, and OpenAI Agents SDK integrations.
 - **Tier 3 browser-interaction servers:** not implemented.
-- **Remote Dev PM profile:** the repository contains a read-only SSH-over-Tailscale deployment runbook; remote provisioning requires an approved host, account, ACL, SSH key, and credentials.
+- **Remote Dev PM profile:** the live Speccon Dev PM MCP server runs over Tailscale as a Streamable HTTP endpoint (`speccon-crm-devpm-write`, 161 tools); the read-only 139-tool profile is archived for rollback. See the Remote Dev PM section below.
 
 ## How it works
 
@@ -239,134 +239,107 @@ Restart the MCP client completely. Confirm that initialization succeeds and that
 
 For a new profile, first initialize the MCP connection and list tools. Then use one known harmless read operation. Do not use production-mutating calls as a connectivity test.
 
-## Remote Dev PM profile over SSH and Tailscale
+## Remote Dev PM profile (Streamable HTTP over Tailscale)
 
-The repository’s current remote design uses SSH-backed MCP stdio, not a public HTTP listener:
+The live Speccon Dev PM MCP server runs on the `theo-zo` workstation over Tailscale as a Streamable HTTP endpoint — not SSH/stdio:
 
 ```text
-local MCP client
-      │ launches
+local MCP client (speccon-erp alias)
+      │ Streamable HTTP
       ▼
-ssh -T speccon-mcp /usr/local/bin/speccon-devpm-mcp
-      │ over Tailscale
+http://100.102.160.49:8000/mcp   (Tailscale IP, port 8000)
+      │
       ▼
-remote wrapper → read-only Dev PM FastMCP server
+wrapper → speccon-crm-devpm-write FastMCP server (161 tools)
 ```
 
-The remote host must be provisioned by an operator. The private OpenAPI spec stays on the trusted workstation; only the generated profile directory and manifest are transferred.
+The endpoint binds the Tailscale interface only — no public listener, Funnel, or DNS exposure. The private OpenAPI spec stays on the trusted workstation; only the generated profile directory and manifest are deployed.
 
-### Generate the read-only profile locally
+### Profile inventory
+
+| Profile | Server name | Tools | Methods | State |
+|---|---|---|---|---|
+| `devpm-write` | `speccon-crm-devpm-write` | 161 (139 reads + 22 ticket/subtask writes) | `GET, POST, PUT, PATCH` | **LIVE** — served at the endpoint above |
+| `devpm-read` | `speccon-crm-devpm-read` | 139 | `GET` only | dormant — archived rollback profile |
+
+Both profiles share the `SPECCON_DEVPM` environment prefix and the `https://prod-erp-backend.azurewebsites.net` base URL. The write profile excludes the six `DELETE` operations and all non-ticket writes (projects, sprints, squads, settings, epics, labels, release notes, document imports, bug claims).
+
+### Generate a profile locally
 
 Run from the trusted workstation after obtaining the private spec through the approved process:
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
+# read-only rollback profile (139 GET tools)
 python ops/generate_devpm_profile.py \
+  --profile read \
   --spec specs/speccon-openapi.json \
   --output output/speccon/profiles/devpm-read
-```
 
-The helper fixes these deployment properties:
-
-- Server: `speccon-crm-devpm-read`
-- Environment prefix: `SPECCON_DEVPM`
-- Base URL: `https://prod-erp-backend.azurewebsites.net`
-- Allowed methods: `GET` only
-- Writes: disabled
-- Dev PM tag allowlist: defined in `ops/generate_devpm_profile.py`
-
-Review `generation_manifest.json` and record the repository commit and `spec_sha256`. Package only the generated profile:
-
-```bash
-tar --sort=name --owner=0 --group=0 --numeric-owner \
-  -czf /tmp/speccon-devpm-read.tar.gz \
-  -C output/speccon/profiles devpm-read
-
-scp /tmp/speccon-devpm-read.tar.gz speccon-mcp:/tmp/
-```
-
-Do not transfer `specs/speccon-openapi.json`, the generator source, or credentials.
-
-### Remote environment and wrapper
-
-The remote secret file is `/etc/mcp-anything/speccon-devpm.env` and must include this non-secret policy structure:
-
-```dotenv
-SPECCON_DEVPM_BASE_URL=https://prod-erp-backend.azurewebsites.net
-SPECCON_DEVPM_EMAIL=
-SPECCON_DEVPM_PASSWORD=
-SPECCON_DEVPM_API_KEY=
-SPECCON_DEVPM_ALLOW_WRITES=false
-SPECCON_DEVPM_ALLOWED_METHODS=GET
-SPECCON_DEVPM_ALLOWED_TAGS=DevPmActivity,DevPmAudit,DevPmBugClaim,DevPmBugTriage,DevPmDashboard,DevPmDocumentImports,DevPmEpics,DevPmEvents,DevPmLabels,DevPmLearners,DevPmMetrics,DevPmNotifications,DevPmPhases,DevPmPoker,DevPmProjectPhases,DevPmProjects,DevPmQuestions,DevPmReleaseNotes,DevPmReports,DevPmSettings,DevPmSprints,DevPmSquads,DevPmSubFeatures,DevPmTeam,DevPmTicketSubtasks,DevPmTickets,DevPmUserPreferences
-SPECCON_DEVPM_ALLOWED_OPERATIONS=
-SPECCON_DEVPM_DENIED_OPERATIONS=
-```
-
-Fill credentials only from the approved remote secret store. Restrict the file to root and the dedicated `mcp-speccon` group:
-
-```bash
-sudo chown root:mcp-speccon /etc/mcp-anything/speccon-devpm.env
-sudo chmod 0640 /etc/mcp-anything/speccon-devpm.env
-```
-
-The wrapper must preserve MCP stdout:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-set -a
-source /etc/mcp-anything/speccon-devpm.env
-set +a
-
-exec /opt/mcp-anything/venv/bin/python \
-  /opt/mcp-anything/output/speccon/profiles/devpm-read/speccon_crm_devpm_read_server.py
-```
-
-Do not print banners, credentials, or diagnostics to stdout. MCP protocol traffic owns stdout.
-
-### Agent/client configuration for the remote profile
-
-```json
-{
-  "mcpServers": {
-    "speccon-remote": {
-      "command": "ssh",
-      "args": [
-        "-T",
-        "speccon-mcp",
-        "/usr/local/bin/speccon-devpm-mcp"
-      ]
-    }
-  }
-}
-```
-
-Credentials belong only in the remote environment file, never in this JSON. After restarting the client, verify initialization and the reviewed tool count. For the current Dev PM profile, the expected result is **139 GET-only tools**.
-
-The first deployment does not use Tailscale Funnel, public DNS, or Streamable HTTP. Tailscale Serve is a later option only if multiple clients require a shared URL.
-
-### Ticket write profile
-
-A write-capable profile (`speccon-crm-devpm-write`) is available alongside the read-only profile. It adds ticket and subtask workflow operations:
-
-- Server: `speccon-crm-devpm-write`
-- Environment prefix: `SPECCON_DEVPM` (same as read profile)
-- Allowed methods: `GET, POST, PUT, PATCH`
-- Writes: enabled (ticket-scoped only)
-- Expected tools: 161 (139 reads + 22 ticket/subtask writes)
-- Deletes: excluded (6 tools denied)
-
-Generate:
-
-```bash
+# live ticket-write profile (161 tools)
 python ops/generate_devpm_profile.py \
   --profile write \
   --spec specs/speccon-openapi.json \
   --output output/speccon/profiles/devpm-write
 ```
 
-The agent prompt at `docs/agent-prompts/speccon-erp-mcp-setup.md` contains the behavioral rules for using the write profile.
+The helper pins the base URL, applies the Dev PM tag allowlist (defined in `ops/generate_devpm_profile.py`), and — for the write profile — the explicit 22-operation ticket write allowlist and 6-operation delete denylist.
+
+Review `generation_manifest.json` and record the repository commit and `spec_sha256`. Never transfer `specs/speccon-openapi.json`, the generator source, or credentials.
+
+### Live environment and wrapper (theo-zo)
+
+The live secret file is `/home/theo-zo/.config/mcp-anything/speccon-devpm.env` (mode `0600`, outside Git). Its policy values differ per profile; the live write profile uses:
+
+```dotenv
+SPECCON_DEVPM_ALLOW_WRITES=true
+SPECCON_DEVPM_ALLOWED_METHODS=GET,POST,PUT,PATCH
+SPECCON_DEVPM_ALLOWED_OPERATIONS=<generator-emitted sorted union of the 139 GET and 22 write operation IDs>
+SPECCON_DEVPM_DENIED_OPERATIONS=delete_api_devpm_DevPmTickets_Delete,delete_api_devpm_DevPmTickets_DeleteSubtask,delete_api_devpm_DevPmTickets_DeleteLink,delete_api_devpm_DevPmTickets_DeleteAttachment,delete_api_devpm_DevPmTickets_Unsubscribe,delete_api_devpm_DevPmTicketSubtasks_Delete
+```
+
+Credentials (`EMAIL`/`PASSWORD`/`API_KEY`) and the FastMCP transport settings (`FASTMCP_TRANSPORT=streamable-http`, `FASTMCP_HOST=100.102.160.49`, `FASTMCP_PORT=8000`, origin protection) live in the same file; never commit or paste them. The `<generator-emitted ...>` text above is a description — the deployed value must be the complete comma-separated list from the manifest.
+
+The wrapper at `/home/theo-zo/.local/bin/speccon-devpm-http` sources the env file and execs the live profile, preserving MCP stdout:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+set -a
+source /home/theo-zo/.config/mcp-anything/speccon-devpm.env
+set +a
+exec /home/theo-zo/dev/mcp-anything/venv/bin/python \
+  /home/theo-zo/dev/mcp-anything/output/speccon/profiles/devpm-write/speccon_crm_devpm_write_server.py
+```
+
+The process runs as the persistent omp hub service `speccon-devpm-http`. Restart it after changing the wrapper, env policy, or profile.
+
+### Agent/client configuration
+
+The client alias `speccon-erp` points at the Streamable HTTP endpoint (client-side JSON; no credentials in it):
+
+```json
+{
+  "mcpServers": {
+    "speccon-erp": {
+      "url": "http://100.102.160.49:8000/mcp"
+    }
+  }
+}
+```
+
+After restarting the client, verify initialization and the reviewed tool count. For the live write profile, the expected result is **161 tools** (`GET/POST/PUT/PATCH`, no `DELETE`).
+
+### Rollback to read-only
+
+To restore the 139-tool GET-only surface:
+
+1. Archive the current write profile and manifest, then restore `devpm-read` into `output/speccon/profiles/` (the archived read-only tarball is the rollback baseline).
+2. Set `SPECCON_DEVPM_ALLOW_WRITES=false` and `SPECCON_DEVPM_ALLOWED_METHODS=GET` in the env file.
+3. Point the wrapper at `devpm-read/speccon_crm_devpm_read_server.py`.
+4. Restart `speccon-devpm-http` and verify 139 tools.
+
+The full operator runbook (including the older SSH layout for other hosts) is at `docs/superpowers/plans/2026-07-30-remote-dev-pm-mcp-deployment.md`. The agent prompt at `docs/agent-prompts/speccon-erp-mcp-setup.md` contains the behavioral rules for the live write profile.
 
 ## LLM enhancement
 
@@ -415,7 +388,7 @@ print(result["server_file"])
 print(result["tool_count"])
 ```
 
-For a reusable profile with explicit policy boundaries, pass `allowed_tags`, `allowed_operations`, `denied_operations`, and `allowed_methods` to `MCPServerGenerator`. The Dev PM helper is the reference implementation for a fixed, strict read-only profile.
+For a reusable profile with explicit policy boundaries, pass `allowed_tags`, `allowed_operations`, `denied_operations`, and `allowed_methods` to `MCPServerGenerator`. The Dev PM helper is the reference implementation for a fixed, strictly-scoped profile (read-only and ticket-write variants).
 
 ## Development and tests
 
@@ -435,8 +408,8 @@ Generated artifacts should be smoke-tested by compiling the generated server bes
 - Streaming support is not implemented.
 - OAuth2 and service-specific authentication helpers are not generalized; generated runtime support currently covers login/password and static token patterns.
 - Rate limiting and retry policy beyond authentication refresh are not generalized.
-- Remote Tailscale/SSH deployment remains an operator runbook, not an automated installer.
-- Streamable HTTP/Tailscale Serve is deferred until multi-client access requires it.
+- Remote Tailscale deployment remains an operator runbook, not an automated installer.
+- Multi-client access beyond the single Tailscale-bound Streamable HTTP endpoint (e.g. Tailscale Serve) is deferred until required.
 
 ## Relationship to CLI-Anything
 
