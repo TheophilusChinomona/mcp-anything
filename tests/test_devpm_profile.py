@@ -3,7 +3,9 @@ from pathlib import Path
 
 from ops.generate_devpm_profile import (
     BASE_URL,
+    CANONICAL_TICKET_FAMILY,
     DENIED_WRITE_OPERATION_IDS,
+    DESCRIPTION_OVERRIDES,
     DEVPM_ALLOWED_TAGS,
     ENV_PREFIX,
     SERVER_NAME,
@@ -78,6 +80,13 @@ def _write_write_fixture(path: Path) -> None:
                             "operationId": "delete_api_devpm_DevPmTickets_Delete",
                             "tags": ["DevPmTickets"],
                             "responses": {"200": {"description": "deleted"}},
+                        }
+                    },
+                    "/api/devpm/DevPmTickets/GetSubscribed": {
+                        "get": {
+                            "operationId": "get_api_devpm_DevPmTickets_GetSubscribed",
+                            "tags": ["DevPmTickets"],
+                            "responses": {"200": {"description": "ok"}},
                         }
                     },
                 },
@@ -228,7 +237,7 @@ def test_devpm_write_profile_generates_scoped_writes(tmp_path):
     assert (output / "generation_manifest.json").exists()
 
     # Should have exactly 2 tools: the GET read operation and the allowed write operation
-    assert result["tool_count"] == 2
+    assert result["tool_count"] == 3
 
     inventory = json.loads((output / "tools_inventory.json").read_text())
     op_ids = [tool["operation_id"] for tool in inventory]
@@ -251,8 +260,8 @@ def test_devpm_write_profile_generates_scoped_writes(tmp_path):
     assert manifest["allow_writes"] is True
     assert set(manifest["allowed_methods"]) == {"GET", "POST", "PUT", "PATCH"}
     assert manifest["allowed_tags"] == DEVPM_ALLOWED_TAGS
-    assert manifest["endpoint_count"] == 2
-    assert manifest["source_endpoint_count"] == 4
+    assert manifest["endpoint_count"] == 3
+    assert manifest["source_endpoint_count"] == 5
 
     # Server source assertions
     server_source = (output / "speccon_crm_devpm_write_server.py").read_text()
@@ -271,7 +280,7 @@ def test_devpm_write_profile_cli(tmp_path):
     result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
 
     assert result["server_name"] == WRITE_SERVER_NAME
-    assert result["tool_count"] == 2
+    assert result["tool_count"] == 3
 
 
 def test_devpm_write_profile_excludes_non_ticket_writes(tmp_path):
@@ -305,4 +314,38 @@ def test_devpm_write_profile_has_read_operations(tmp_path):
 
     # The GET listProjects should be included
     assert any(tool["operation_id"] == "listProjects" for tool in read_ops)
-    assert len(read_ops) == 1
+    assert len(read_ops) == 2
+
+
+def test_description_overrides_clarify_user_scoped_semantics():
+    """The intent-shaped overrides must cover both route families and key user-scoped reads."""
+    # Both families covered for the ambiguous reads
+    assert "get_api_devpm_Tickets_GetSubscribed" in DESCRIPTION_OVERRIDES
+    assert "get_api_devpm_DevPmTickets_GetSubscribed" in DESCRIPTION_OVERRIDES
+    assert "get_api_devpm_Tickets_GetList" in DESCRIPTION_OVERRIDES
+    assert "get_api_devpm_DevPmTickets_GetList" in DESCRIPTION_OVERRIDES
+    assert "get_api_devpm_Activity_GetUserFeed" in DESCRIPTION_OVERRIDES
+
+    # Subscribed must be explicitly distinguished from assigned
+    subscribed = DESCRIPTION_OVERRIDES["get_api_devpm_DevPmTickets_GetSubscribed"].lower()
+    assert "not the same as" in subscribed
+    assert "assigned" in subscribed
+    assert "assigneeuserid" in subscribed
+    # GetList override must point at the assigneeuserid filter (the "my tickets" recipe)
+    getlist = DESCRIPTION_OVERRIDES["get_api_devpm_DevPmTickets_GetList"].lower()
+    assert "assigneeuserid" in getlist
+    assert "my tickets" in getlist
+
+
+def test_description_overrides_are_emitted_in_generated_server(tmp_path):
+    """Generated write server embeds the intent-shaped descriptions."""
+    spec = tmp_path / "write-spec.json"
+    output = tmp_path / "write-profile"
+    _write_write_fixture(spec)
+
+    result = main(["--spec", str(spec), "--output", str(output), "--profile", "write"])
+    server_source = Path(result["server_file"]).read_text()
+
+    # The subscribed override text must appear in the generated tool docstring
+    assert "NOT the same as" in server_source
+    assert "follows/watches" in server_source

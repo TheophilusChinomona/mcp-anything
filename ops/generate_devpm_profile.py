@@ -52,6 +52,67 @@ DEVPM_ALLOWED_TAGS = [
     "DevPmUserPreferences",
 ]
 
+# Canonical ticket route family. The API exposes both /api/devpm/Tickets/* and
+# /api/devpm/DevPmTickets/*; the write profile is built on the DevPmTickets
+# operations, so that family is canonical. Overrides mark the legacy family.
+CANONICAL_TICKET_FAMILY = "DevPmTickets"
+
+# Intent-shaped description overrides keyed by operation ID. The private spec's
+# operations carry no useful summaries, so every generated tool would otherwise
+# be described only by its route. These clarify user-scoped semantics so an
+# agent can answer "what are my tickets?" without inferring the user id from
+# the activity feed. Keys cover both the canonical and legacy route families.
+DESCRIPTION_OVERRIDES: dict[str, str] = {
+    # Current-user identity (no dedicated /Me endpoint exists yet).
+    "get_api_devpm_Activity_GetUserFeed": (
+        "Activity feed for the authenticated user. performedByUserId in the results is the "
+        "current user's id when no dedicated current-user endpoint exists."
+    ),
+    "get_api_devpm_DevPmActivity_GetUserFeed": (
+        "Activity feed for the authenticated user. performedByUserId in the results is the "
+        "current user's id when no dedicated current-user endpoint exists."
+    ),
+    # Assigned tickets: GetList with assigneeuserid is the canonical "my tickets" read.
+    "get_api_devpm_Tickets_GetList": (
+        "Ticket list. Pass assigneeuserid to get tickets assigned to a user, status to filter "
+        "by workflow state (e.g. 'To Do', 'In Progress'). This is the canonical read for "
+        "'my tickets' when combined with the current user's id."
+    ),
+    "get_api_devpm_DevPmTickets_GetList": (
+        "Ticket list. Pass assigneeuserid to get tickets assigned to a user, status to filter "
+        "by workflow state (e.g. 'To Do', 'In Progress'). This is the canonical read for "
+        "'my tickets' when combined with the current user's id."
+    ),
+    # Subscribed = followed/watched, NOT assigned.
+    "get_api_devpm_Tickets_GetSubscribed": (
+        "Tickets the current user subscribes to (follows/watches). This is NOT the same as "
+        "tickets assigned to the current user. For assigned tickets use GetList with "
+        "assigneeuserid."
+    ),
+    "get_api_devpm_DevPmTickets_GetSubscribed": (
+        "Tickets the current user subscribes to (follows/watches). This is NOT the same as "
+        "tickets assigned to the current user. For assigned tickets use GetList with "
+        "assigneeuserid."
+    ),
+    "get_api_devpm_Tickets_IsSubscribed": (
+        "Checks whether the current user subscribes to a specific ticket (follows it). "
+        "Unrelated to ticket assignment."
+    ),
+    "get_api_devpm_DevPmTickets_IsSubscribed": (
+        "Checks whether the current user subscribes to a specific ticket (follows it). "
+        "Unrelated to ticket assignment."
+    ),
+    # Claimed bug reports are a different concept from assigned tickets.
+    "get_api_devpm_BugClaim_MyClaimCount": (
+        "Count of bug reports claimed by the current user. Claimed bug reports are NOT the "
+        "same as DevPM tickets assigned to the user."
+    ),
+    "get_api_devpm_DevPmBugClaim_MyClaimCount": (
+        "Count of bug reports claimed by the current user. Claimed bug reports are NOT the "
+        "same as DevPM tickets assigned to the user."
+    ),
+}
+
 # Write profile constants
 WRITE_SERVER_NAME = "speccon-crm-devpm-write"
 WRITE_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH"}
@@ -126,6 +187,7 @@ def _build_read_profile(spec: Path, output: Path) -> dict:
         allow_writes=False,
         allowed_methods={"GET"},
         allowed_tags=DEVPM_ALLOWED_TAGS,
+        description_overrides=DESCRIPTION_OVERRIDES,
     )
     result = generator.generate(str(output))
     result["base_url"] = BASE_URL
@@ -160,6 +222,7 @@ def _build_write_profile(spec: Path, output: Path) -> dict:
         allowed_operations=allowed_operations,
         denied_operations=DENIED_WRITE_OPERATION_IDS,
         allowed_tags=DEVPM_ALLOWED_TAGS,
+        description_overrides=DESCRIPTION_OVERRIDES,
     )
     result = generator.generate(str(output))
     result["base_url"] = BASE_URL

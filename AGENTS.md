@@ -27,6 +27,8 @@ MCP-Anything generates FastMCP servers from OpenAPI specs. Its live production u
 
 The MCP server enforces the policy server-side; the agent prompt at `docs/agent-prompts/speccon-erp-mcp-setup.md` is the authoritative behavioral spec. Summary:
 
+**"My tickets" read flow** (no `/Me` endpoint yet — tracked as DevPM #499): `get_api_devpm_activity_getuserfeed` → `performedByUserId` = current user → `get_api_devpm_devpmtickets_getlist` with `assigneeuserid` (+ optional `status`). Do NOT use `getsubscribed` for this — subscribed = followed, not assigned. `DevPmTickets` family is canonical over legacy `Tickets`.
+
 **Routine writes** (proceed after parameter validation): creating tickets, adding comments, creating subtasks, uploading attachments.
 
 **Require explicit user confirmation before:** assignment/delegation/collaborator changes; approvals or rejections (QA reject, approve, park); review-flag changes; batch planning status updates; adding/removing links; creating/resolving questions; any ambiguous write.

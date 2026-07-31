@@ -214,6 +214,7 @@ class MCPServerGenerator:
         allowed_operations: Optional[set[str]] = None,
         denied_operations: Optional[set[str]] = None,
         allowed_methods: Optional[set[str]] = None,
+        description_overrides: Optional[dict[str, str]] = None,
         max_documented_tools: int = 500,
     ):
         self.analyzer = analyzer
@@ -226,6 +227,7 @@ class MCPServerGenerator:
         self.allowed_methods = {
             method.upper() for method in (allowed_methods or set()) if method
         }
+        self.description_overrides = dict(description_overrides or {})
         self.max_documented_tools = max_documented_tools
 
     def _derive_server_name(self) -> str:
@@ -384,7 +386,12 @@ class MCPServerGenerator:
             f"{endpoint.method}_{endpoint.path}"
         )
         params = _build_param_signature(endpoint)
-        summary = (endpoint.summary or endpoint.description or f"{endpoint.method} {endpoint.path}")
+        summary = (
+            self.description_overrides.get(endpoint.operation_id)
+            or endpoint.summary
+            or endpoint.description
+            or f"{endpoint.method} {endpoint.path}"
+        )
         summary = summary.replace('"""', "'''").replace("\n", " ")[:500]
         path_template = _build_url_template(endpoint.path, bindings)
         query_code = _build_parameter_map(bindings, "query", "query_params")
