@@ -477,6 +477,26 @@ If the write rollout fails verification, the user requests rollback, or an incid
 
 ---
 
+## Actual deployment on `theo-zo` (Streamable HTTP)
+
+This workstation runs the write profile directly over Streamable HTTP — it does not use the SSH/stdio layout described above. Use these paths for operations on this host:
+
+| Item | Value |
+|---|---|
+| MCP endpoint | `http://100.102.160.49:8000/mcp` (Tailscale IP, port 8000) |
+| Active profile | `speccon-crm-devpm-write` (161 tools) |
+| Wrapper | `/home/theo-zo/.local/bin/speccon-devpm-http` |
+| Env file | `/home/theo-zo/.config/mcp-anything/speccon-devpm.env` (mode 0600) |
+| Profile artifact | `/home/theo-zo/dev/mcp-anything/output/speccon/profiles/devpm-write/` |
+| Process manager | omp hub process `speccon-devpm-http` (restart via `hub` / `systemctl --user` as configured) |
+
+Key differences from the SSH layout:
+
+- Transport is `FASTMCP_TRANSPORT=streamable-http` with `FASTMCP_HOST=100.102.160.49` and `FASTMCP_PORT=8000`.
+- The server binds the Tailscale interface; `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` and `FASTMCP_HTTP_ALLOWED_HOSTS` restrict origins. No public listener, Funnel, or DNS exposure.
+- The wrapper sources the env file, then `exec`s the write profile server directly.
+- Rollback on this host: stop `speccon-devpm-http`, point the wrapper at `devpm-read/speccon_crm_devpm_read_server.py`, restore `SPECCON_DEVPM_ALLOW_WRITES=false` / `SPECCON_DEVPM_ALLOWED_METHODS=GET` in the env file, restart.
+
 ## Completion Checklist
 
 - [ ] Remote Tailscale host has the pinned repository commit and matching generated manifest.
