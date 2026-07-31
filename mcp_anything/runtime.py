@@ -310,7 +310,15 @@ class MCPHttpClient:
             body=body,
             content_type=content_type,
         )
-        if response.status_code == 401 and method in SAFE_METHODS and not self.auth.uses_static_token:
+        if response.status_code == 401 and not self.auth.uses_static_token:
+            # A 401 means the backend's authorization middleware rejected the
+            # request before the handler ran, so the operation was NOT applied.
+            # Refresh the token once and retry — matching the GET path — so a
+            # long-running server does not fail every write after its access
+            # token is revoked or expires server-side. Safe to retry: the write
+            # never executed. (If a backend ever returns 401 from inside the
+            # handler after doing work, this would double-apply; [Authorize]-style
+            # pipelines reject before the action.)
             self.auth.get_token(force_refresh=True)
             response = self._send(
                 method,

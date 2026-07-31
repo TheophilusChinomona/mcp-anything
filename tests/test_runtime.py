@@ -130,7 +130,7 @@ def test_http_client_refreshes_and_retries_safe_get_after_401():
     ]
 
 
-def test_http_client_does_not_retry_non_idempotent_post_after_401():
+def test_http_client_retries_post_once_after_401_with_fresh_token():
     calls = []
     responses = [
         httpx.Response(
@@ -145,6 +145,18 @@ def test_http_client_does_not_retry_non_idempotent_post_after_401():
             },
         ),
         httpx.Response(401, json={"message": "expired"}),
+        httpx.Response(
+            200,
+            json={
+                "isError": False,
+                "result": {
+                    "token": "access-2",
+                    "refreshToken": "refresh-2",
+                    "validTo": "2099-01-01T00:00:00Z",
+                },
+            },
+        ),
+        httpx.Response(200, json={"isError": False, "result": {"id": 42}}),
     ]
 
     def handler(request):
@@ -164,13 +176,15 @@ def test_http_client_does_not_retry_non_idempotent_post_after_401():
         client=transport_client,
     )
 
-    with pytest.raises(httpx.HTTPStatusError):
-        api.request("POST", "/api/Clients", body={"name": "Acme"})
+    result = api.request("POST", "/api/Clients", body={"name": "Acme"})
 
     assert [request.url.path for request in calls] == [
         "/api/User/Login",
         "/api/Clients",
+        "/api/User/RefreshToken",
+        "/api/Clients",
     ]
+    assert result["result"]["id"] == 42
 
 
 def test_http_client_serializes_form_and_multipart_requests(tmp_path):
